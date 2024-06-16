@@ -4,7 +4,10 @@ from craftax.craftax_classic.constants import *
 from craftax.craftax_classic.envs.craftax_state import *
 
 
-def is_game_over(state, params):
+def is_game_over(state: EnvState, params):
+    """
+    Game ends when the player dies or the number of timesteps exceeds `params.max_timesteps`
+    """
     done_steps = state.timestep >= params.max_timesteps
     in_lava = (
         state.map[state.player_position[0], state.player_position[1]]
@@ -12,16 +15,22 @@ def is_game_over(state, params):
     )
     is_dead = state.player_health <= 0
 
-    return done_steps | in_lava | is_dead
+    return ~params.god_mode & (done_steps | in_lava | is_dead)
 
 
-def in_bounds(state, position):
+def in_bounds(state: EnvState, position):
+    """
+    Checks if position is within map dimensions
+    """
     in_bounds_x = jnp.logical_and(0 <= position[0], position[0] < state.map.shape[0])
     in_bounds_y = jnp.logical_and(0 <= position[1], position[1] < state.map.shape[1])
     return jnp.logical_and(in_bounds_x, in_bounds_y)
 
 
-def is_in_wall(state, position):
+def is_in_wall(state: EnvState, position):
+    """
+    Checks if position is on a tile that cannot be walked on
+    """
     def _is_given_solid_block(unused, block):
         return None, state.map[position[0], position[1]] == block
 
@@ -31,6 +40,9 @@ def is_in_wall(state, position):
 
 
 def is_position_in_bounds_not_in_wall_not_in_mob_not_in_lava(state, position):
+    """
+    Checks if the position parameter is within map bounds, not on a wall, and not in a lava tile.
+    """
     pos_in_bounds = in_bounds(state, position)
     in_wall = is_in_wall(state, position)
     in_mob = is_in_mob(state, position)
@@ -42,7 +54,10 @@ def is_position_in_bounds_not_in_wall_not_in_mob_not_in_lava(state, position):
     return valid_move
 
 
-def get_player_attack_damage(state):
+def get_player_attack_damage(state: EnvState):
+    """
+    Calculates the player attack damage, which depends on player inventory
+    """
     damages = jnp.array(
         [
             1,
@@ -55,7 +70,11 @@ def get_player_attack_damage(state):
     return jnp.max(damages)
 
 
-def update_plants_with_eat(state, plant_position, static_params):
+def update_plants_with_eat(state: EnvState, plant_position, static_params):
+    """
+    Resets the age of the plant being eaten. Note that `plant_position`
+    represents the position of the plant, not the player.
+    """
     def _is_plant(unused, index):
         return None, (state.growing_plants_positions[index] == plant_position).all()
 
@@ -69,6 +88,9 @@ def update_plants_with_eat(state, plant_position, static_params):
 
 
 def do_action(rng, state, action, static_params):
+    """
+    Calculates the state after performing player action (spacebar)
+    """
     old_state = state
 
     block_position = state.player_position + DIRECTIONS[state.player_direction]
@@ -88,9 +110,11 @@ def do_action(rng, state, action, static_params):
     new_zombie_health = new_zombies.health.at[target_zombie_index].add(
         -get_player_attack_damage(state) * is_attacking_zombie
     )
+    # Replace sets the field to a new value
     new_zombies = new_zombies.replace(health=new_zombie_health)
 
     old_mask = new_zombies.mask[target_zombie_index]
+    # zombies with 0 health die
     new_zombies = new_zombies.replace(mask=new_zombies.health > 0)
     did_kill_zombie = jnp.logical_and(
         old_mask, jnp.logical_not(new_zombies.mask[target_zombie_index])
@@ -131,9 +155,12 @@ def do_action(rng, state, action, static_params):
     new_achievements = state.achievements.at[Achievement.EAT_COW.value].set(
         jnp.logical_or(state.achievements[Achievement.EAT_COW.value], did_kill_cow)
     )
+    # killing cow = food
     new_food = jax.lax.select(
         did_kill_cow, jnp.minimum(9, state.player_food + 6), state.player_food
     )
+    # Player will no longer be hungry after eating cow, which
+    # won't decrease food level
     new_hunger = jax.lax.select(did_kill_cow, 0.0, state.player_hunger)
 
     state = state.replace(cows=new_cows, player_food=new_food, player_hunger=new_hunger)
@@ -383,6 +410,9 @@ def do_action(rng, state, action, static_params):
 
 
 def is_near_block(state, block_type):
+    """
+    Checks if block is in the 8 squares adjacent to the user
+    """
     def _is_given_block(unused, loc_add):
         pos = state.player_position + loc_add
         is_in_bounds = in_bounds(state, pos)
@@ -395,6 +425,10 @@ def is_near_block(state, block_type):
 
 
 def do_crafting(state, action):
+    """
+    Craft given item if user has sufficient inventory and
+    is near crafting table or furnace (for iron pickaxes and swords)
+    """
     is_at_crafting_table = is_near_block(state, BlockType.CRAFTING_TABLE.value)
     is_at_furnace = is_near_block(state, BlockType.FURNACE.value)
 
@@ -745,7 +779,8 @@ def place_block(state, action, static_params):
     return state
 
 
-def is_in_mob(state: EnvState, position: chex.Array):
+def is_in_mob(state: EnvState, position: jax.Array):
+    """Whether position is occupied by player or other entity"""
     return jnp.logical_or(
         state.mob_map[position[0], position[1]],
         (state.player_position == position).all(),
@@ -753,6 +788,7 @@ def is_in_mob(state: EnvState, position: chex.Array):
 
 
 def update_mobs(rng, state, params, static_params):
+    """Move the zombies, cows, skeletons, and arrows"""
     # Move zombies
 
     def _move_zombie(rng_and_state, zombie_index):
@@ -769,7 +805,7 @@ def update_mobs(rng, state, params, static_params):
             zombies.position[zombie_index] + random_move_direction
         )
 
-        # Move towards player
+        # Move towards player - needs to be modified for multi-agent
         player_move_direction = jnp.zeros((2,), dtype=jnp.int32)
         player_move_direction_abs = jnp.abs(
             state.player_position - zombies.position[zombie_index]
@@ -977,7 +1013,7 @@ def update_mobs(rng, state, params, static_params):
             skeletons.position[skeleton_index] + random_move_direction
         )
 
-        # Move towards player
+        # Move towards player - needs to be modified for multi-agent
         player_move_direction = jnp.zeros((2,), dtype=jnp.int32)
         player_move_direction_abs = jnp.abs(
             state.player_position - skeletons.position[skeleton_index]
@@ -1222,6 +1258,9 @@ def update_mobs(rng, state, params, static_params):
 
 
 def get_distance_map(position, static_params):
+    """
+    Calculate the distance from the position to every point in the map
+    """
     dist_x = jnp.abs(jnp.arange(0, static_params.map_size[0]) - position[0])
     dist_x = jnp.expand_dims(dist_x, axis=1)
     dist_x = jnp.tile(dist_x, (1, static_params.map_size[1]))
@@ -1398,6 +1437,9 @@ def move_player(state, action):
 
 
 def spawn_mobs(state, rng, params, static_params):
+    """
+    Spawn and despawn mobs based on distance and block types
+    """
     player_distance_map = get_distance_map(state.player_position, static_params)
 
     # Cows
@@ -1630,6 +1672,9 @@ def spawn_mobs(state, rng, params, static_params):
 
 
 def cap_inventory(state):
+    """
+    Limit inventory to 9 items
+    """
     capped_inv = jax.tree_map(lambda x: jnp.minimum(x, 9), state.inventory)
 
     state = state.replace(inventory=capped_inv)
@@ -1687,6 +1732,11 @@ def craftax_step(rng, state, action, params, static_params):
         timestep=state.timestep + 1,
         light_level=calculate_light_level(state.timestep + 1, params),
         state_rng=_rng,
+        player_health = jax.lax.select(params.god_mode, 9, state.player_health),
+        player_food = jax.lax.select(params.god_mode, 9, state.player_food),
+        player_drink = jax.lax.select(params.god_mode, 9, state.player_drink),
+        player_energy = jax.lax.select(params.god_mode, 9, state.player_energy),
     )
+    jax.debug.breakpoint()
 
     return state, reward

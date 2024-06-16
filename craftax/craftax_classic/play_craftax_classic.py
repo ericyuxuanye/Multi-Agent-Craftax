@@ -109,6 +109,9 @@ def main(args):
     env = make_craftax_env_from_name("Craftax-Classic-Symbolic-v1", auto_reset=True)
     env_params = env.default_params
 
+    if args.god:
+        env_params = env_params.replace(god_mode=True)
+
     print("Controls")
     for k, v in KEY_MAPPING.items():
         print(f"{pygame.key.name(k)}: {v.name.lower()}")
@@ -151,6 +154,7 @@ def entry_point():
     parser = argparse.ArgumentParser()
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--fps", type=int, default=60)
+    parser.add_argument("--god", action="store_true")
 
     args, rest_args = parser.parse_known_args(sys.argv[1:])
     if rest_args:

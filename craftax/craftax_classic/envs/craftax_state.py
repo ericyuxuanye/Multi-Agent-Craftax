@@ -24,21 +24,30 @@ class Inventory:
 
 @struct.dataclass
 class Mobs:
+    """Represents every occurrence of one type of Mob"""
     position: jnp.ndarray
+    """Positions of each mob with shape (n,2)"""
     health: int
+    """Actually an int array"""
     mask: bool
+    """Actually a boolean array"""
     attack_cooldown: int
+    """Actually an int array"""
 
 
 @struct.dataclass
 class EnvState:
     map: jnp.ndarray
+    """2D int array of tiles"""
     mob_map: jnp.ndarray
+    """2D boolean array"""
 
     player_position: jnp.ndarray
+    """x, y coordinates of player"""
     player_direction: int
+    """Direction of player"""
 
-    # Intrinsics
+    # Intrinsics - player stats range from 0 to 9
     player_health: int
     player_food: int
     player_drink: int
@@ -52,7 +61,9 @@ class EnvState:
     player_fatigue: float
 
     inventory: Inventory
+    """Refer to `Inventory`"""
 
+    # Mobs
     zombies: Mobs
     cows: Mobs
     skeletons: Mobs
@@ -60,18 +71,23 @@ class EnvState:
     arrow_directions: jnp.ndarray
 
     growing_plants_positions: jnp.ndarray
+    """(num_plants, 2) array"""
     growing_plants_age: jnp.ndarray
+    """(num_plants,) array"""
     growing_plants_mask: jnp.ndarray
+    """(num_plants,) boolean array"""
 
     light_level: float
 
     achievements: jnp.ndarray
+    """bool array representing achievements. Refer to `Achievement` in constants"""
 
     state_rng: Any
 
     timestep: int
 
     fractal_noise_angles: tuple[int, int, int, int] = (None, None, None, None)
+    """Honestly idk why this is in state rather than params"""
 
 
 @struct.dataclass
@@ -93,6 +109,8 @@ class EnvParams:
     spawn_skeleton_chance: float = 0.05
 
     fractal_noise_angles: tuple[int, int, int, int] = (None, None, None, None)
+
+    god_mode: bool = False
 
 
 @struct.dataclass

@@ -71,6 +71,7 @@ DIRECTIONS = jnp.concatenate(
     axis=0,
 )
 
+# All tiles within 1 block away from agent
 CLOSE_BLOCKS = jnp.array(
     [
         [0, -1],
