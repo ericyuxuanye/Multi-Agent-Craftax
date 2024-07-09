@@ -8,30 +8,39 @@ import jax.numpy as jnp
 
 @struct.dataclass
 class Inventory:
-    wood: int = 0
-    stone: int = 0
-    coal: int = 0
-    iron: int = 0
-    diamond: int = 0
-    sapling: int = 0
-    wood_pickaxe: int = 0
-    stone_pickaxe: int = 0
-    iron_pickaxe: int = 0
-    wood_sword: int = 0
-    stone_sword: int = 0
-    iron_sword: int = 0
+    """All items in inventory are int arrays"""
+
+    @staticmethod
+    def generate_inventory(num_agents: int) -> "Inventory":
+        # we can do this since arrays are immutable
+        zero_array = jnp.zeros(num_agents, dtype=int)
+        return Inventory(*(zero_array for _ in range(12)))
+
+    wood: jnp.ndarray
+    stone: jnp.ndarray
+    coal: jnp.ndarray
+    iron: jnp.ndarray
+    diamond: jnp.ndarray
+    sapling: jnp.ndarray
+    wood_pickaxe: jnp.ndarray
+    stone_pickaxe: jnp.ndarray
+    iron_pickaxe: jnp.ndarray
+    wood_sword: jnp.ndarray
+    stone_sword: jnp.ndarray
+    iron_sword: jnp.ndarray
 
 
 @struct.dataclass
 class Mobs:
     """Represents every occurrence of one type of Mob"""
+
     position: jnp.ndarray
     """Positions of each mob with shape (n,2)"""
-    health: int
-    """Actually an int array"""
-    mask: bool
+    health: jnp.ndarray
+    """An int array representing the mob healths"""
+    mask: jnp.ndarray
     """Actually a boolean array"""
-    attack_cooldown: int
+    attack_cooldown: jnp.ndarray
     """Actually an int array"""
 
 
@@ -42,26 +51,36 @@ class EnvState:
     mob_map: jnp.ndarray
     """2D boolean array"""
 
+    # After refactoring, needs to be (n, 2)
     player_position: jnp.ndarray
-    """x, y coordinates of player"""
-    player_direction: int
-    """Direction of player"""
+    """Integer (x, y) coordinates of players. Has shape (n, 2)"""
+    player_direction: jnp.ndarray
+    """Direction of players as ints, with shape (n,)"""
 
     # Intrinsics - player stats range from 0 to 9
-    player_health: int
-    player_food: int
-    player_drink: int
-    player_energy: int
-    is_sleeping: bool
+    player_health: jnp.ndarray
+    """Int array representing player healths"""
+    player_food: jnp.ndarray
+    """Int array representing player food"""
+    player_drink: jnp.ndarray
+    """Int array representing player water satisfaction level"""
+    player_energy: jnp.ndarray
+    """Int array representing player energy"""
+    is_sleeping: jnp.ndarray
+    """Boolean array representing whether the player is sleeping"""
 
     # Second order intrinsics
-    player_recover: float
-    player_hunger: float
-    player_thirst: float
-    player_fatigue: float
+    player_recover: jnp.ndarray
+    """Float array representing player recovery level"""
+    player_hunger: jnp.ndarray
+    """Float array representing player hunger level"""
+    player_thirst: jnp.ndarray
+    """Float array representing player thirst level"""
+    player_fatigue: jnp.ndarray
+    """Float array representing player fatigue level"""
 
     inventory: Inventory
-    """Refer to `Inventory`"""
+    """Represents inventory of all players. Refer to `Inventory`"""
 
     # Mobs
     zombies: Mobs
@@ -77,16 +96,21 @@ class EnvState:
     growing_plants_mask: jnp.ndarray
     """(num_plants,) boolean array"""
 
-    light_level: float
+    light_level: jnp.ndarray
 
     achievements: jnp.ndarray
-    """bool array representing achievements. Refer to `Achievement` in constants"""
+    """(n, n_unique_achievements(22)) bool array representing achievements. Refer to `Achievement` in constants"""
 
     state_rng: Any
 
     timestep: int
 
-    fractal_noise_angles: tuple[int, int, int, int] = (None, None, None, None)
+    fractal_noise_angles: tuple[int | None, int | None, int | None, int | None] = (
+        None,
+        None,
+        None,
+        None,
+    )
     """Honestly idk why this is in state rather than params"""
 
 
@@ -108,13 +132,20 @@ class EnvParams:
     spawn_zombie_night_chance: float = 0.1
     spawn_skeleton_chance: float = 0.05
 
-    fractal_noise_angles: tuple[int, int, int, int] = (None, None, None, None)
+    fractal_noise_angles: tuple[int | None, int | None, int | None, int | None] = (
+        None,
+        None,
+        None,
+        None,
+    )
 
     god_mode: bool = False
+    """Turn this on to not die lol"""
 
 
 @struct.dataclass
 class StaticEnvParams:
+    num_players = 2
     map_size: Tuple[int, int] = (64, 64)
 
     # Mobs

@@ -103,6 +103,16 @@ SOLID_BLOCKS = jnp.array(
     dtype=jnp.int32,
 )
 
+PLACEMENT_ACTIONS = jnp.array(
+    [
+        Action.PLACE_TABLE.value,
+        Action.PLACE_STONE.value,
+        Action.PLACE_PLANT.value,
+        Action.PLACE_FURNACE.value,
+    ],
+    dtype=jnp.int32,
+)
+
 
 # ACHIEVEMENTS
 class Achievement(Enum):

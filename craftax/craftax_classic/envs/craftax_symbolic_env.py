@@ -127,7 +127,7 @@ class CraftaxClassicSymbolicEnv(environment.Environment):
         return StaticEnvParams()
 
     def step_env(
-        self, rng: chex.PRNGKey, state: EnvState, action: int, params: EnvParams
+        self, rng: chex.PRNGKey, state: EnvState, action: jnp.ndarray, params: EnvParams
     ) -> Tuple[chex.Array, EnvState, float, bool, dict]:
         state, reward = craftax_step(rng, state, action, params, self.static_env_params)
 
@@ -151,8 +151,11 @@ class CraftaxClassicSymbolicEnv(environment.Environment):
         return self.get_obs(state), state
 
     def get_obs(self, state: EnvState) -> chex.Array:
-        pixels = render_craftax_symbolic(state)
-        return pixels
+        def _render_player(player):
+            return render_craftax_symbolic(state, player)
+        all_pixels = jax.vmap(_render_player)(jnp.arange(self.static_env_params.num_players))
+        # pixels = render_craftax_symbolic(state)
+        return all_pixels
 
     def is_terminal(self, state: EnvState, params: EnvParams) -> bool:
         return is_game_over(state, params)

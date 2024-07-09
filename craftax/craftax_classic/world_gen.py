@@ -2,16 +2,16 @@ from functools import partial
 
 from craftax.craftax_classic.constants import *
 from craftax.craftax_classic.game_logic import calculate_light_level, get_distance_map
-from craftax.craftax_classic.envs.craftax_state import EnvState, Inventory, Mobs
+from craftax.craftax_classic.envs.craftax_state import EnvParams, EnvState, Inventory, Mobs, StaticEnvParams
 from craftax.craftax_classic.util.noise import generate_fractal_noise_2d
 
 
-def generate_world(rng, params, static_params):
+def generate_world(rng, params: EnvParams, static_params: StaticEnvParams):
     fractal_noise_angles = params.fractal_noise_angles
     rng, _rng = jax.random.split(rng, num=2)
 
     player_position = jnp.array(
-        [static_params.map_size[0] // 2, static_params.map_size[1] // 2]
+        [[static_params.map_size[0] // 2, static_params.map_size[1] // 2]] * static_params.num_players
     )
 
     player_proximity_map = get_distance_map(player_position, static_params).astype(
@@ -231,17 +231,17 @@ def generate_world(rng, params, static_params):
         map=map,
         mob_map=jnp.zeros(static_params.map_size, dtype=bool),
         player_position=player_position,
-        player_direction=Action.UP.value,
-        player_health=9,
-        player_food=9,
-        player_drink=9,
-        player_energy=9,
-        player_recover=0.0,
-        player_hunger=0.0,
-        player_thirst=0.0,
-        player_fatigue=0.0,
-        is_sleeping=False,
-        inventory=Inventory(),
+        player_direction=jnp.full(static_params.num_players, Action.UP.value),
+        player_health=jnp.full(static_params.num_players, 9),
+        player_food=jnp.full(static_params.num_players, 9),
+        player_drink=jnp.full(static_params.num_players, 9),
+        player_energy=jnp.full(static_params.num_players, 9),
+        player_recover=jnp.full(static_params.num_players, 0.0),
+        player_hunger=jnp.full(static_params.num_players, 0.0),
+        player_thirst=jnp.full(static_params.num_players, 0.0),
+        player_fatigue=jnp.full(static_params.num_players, 0.0),
+        is_sleeping=jnp.full(static_params.num_players, False),
+        inventory=Inventory.generate_inventory(static_params.num_players),
         zombies=zombies,
         skeletons=skeletons,
         arrows=arrows,
@@ -250,7 +250,7 @@ def generate_world(rng, params, static_params):
         growing_plants_positions=growing_plants_positions,
         growing_plants_age=growing_plants_age,
         growing_plants_mask=growing_plants_mask,
-        achievements=jnp.zeros((len(Achievement),), dtype=bool),
+        achievements=jnp.zeros((static_params.num_players, len(Achievement)), dtype=bool),
         light_level=calculate_light_level(0, params),
         state_rng=_rng,
         timestep=0,
@@ -259,94 +259,94 @@ def generate_world(rng, params, static_params):
     return state
 
 
-def generate_random_world(rng, params, static_params):
-    # Zombies
-
-    z_pos = jnp.zeros((static_params.max_zombies, 2), dtype=jnp.int32)
-    z_health = jnp.ones(static_params.max_zombies, dtype=jnp.int32)
-    z_mask = jnp.zeros(static_params.max_zombies, dtype=bool)
-
-    # z_pos = z_pos.at[0].set(player_position + jnp.array([1, 0]))
-    # z_mask = z_mask.at[0].set(True)
-
-    zombies = Mobs(
-        position=z_pos,
-        health=z_health,
-        mask=z_mask,
-        attack_cooldown=jnp.zeros(static_params.max_zombies, dtype=jnp.int32),
-    )
-
-    # Skeletons
-    sk_positions = jnp.zeros((static_params.max_skeletons, 2), dtype=jnp.int32)
-    sk_healths = jnp.zeros(static_params.max_skeletons, dtype=jnp.int32)
-    sk_mask = jnp.zeros(static_params.max_skeletons, dtype=bool)
-
-    skeletons = Mobs(
-        position=sk_positions,
-        health=sk_healths,
-        mask=sk_mask,
-        attack_cooldown=jnp.zeros(static_params.max_skeletons, dtype=jnp.int32),
-    )
-
-    # Arrows
-    arrow_positions = jnp.zeros((static_params.max_arrows, 2), dtype=jnp.int32)
-    arrow_healths = jnp.zeros(static_params.max_arrows, dtype=jnp.int32)
-    arrow_masks = jnp.zeros(static_params.max_arrows, dtype=bool)
-
-    arrows = Mobs(
-        position=arrow_positions,
-        health=arrow_healths,
-        mask=arrow_masks,
-        attack_cooldown=jnp.zeros(static_params.max_arrows, dtype=jnp.int32),
-    )
-
-    arrow_directions = jnp.ones((static_params.max_arrows, 2), dtype=jnp.int32)
-
-    # Cows
-    cows = Mobs(
-        position=jnp.zeros((static_params.max_cows, 2), dtype=jnp.int32),
-        health=jnp.ones(static_params.max_cows, dtype=jnp.int32) * params.cow_health,
-        mask=jnp.zeros(static_params.max_cows, dtype=bool),
-        attack_cooldown=jnp.zeros(static_params.max_cows, dtype=jnp.int32),
-    )
-
-    # Plants
-    growing_plants_positions = jnp.zeros(
-        (static_params.max_growing_plants, 2), dtype=jnp.int32
-    )
-    growing_plants_age = jnp.zeros(static_params.max_growing_plants, dtype=jnp.int32)
-    growing_plants_mask = jnp.zeros(static_params.max_growing_plants, dtype=bool)
-
-    rng, _rng = jax.random.split(rng)
-    map = jax.random.choice(
-        _rng, jnp.arange(2, 17), shape=static_params.map_size
-    ).astype(int)
-
-    state = EnvState(
-        map=map,
-        player_position=jnp.zeros(2, dtype=jnp.int32),
-        player_direction=Action.UP.value,
-        player_health=9,
-        player_food=9,
-        player_drink=9,
-        player_energy=9,
-        player_recover=0.0,
-        player_hunger=0.0,
-        player_thirst=0.0,
-        player_fatigue=0.0,
-        is_sleeping=False,
-        inventory=Inventory(),
-        zombies=zombies,
-        skeletons=skeletons,
-        arrows=arrows,
-        arrow_directions=arrow_directions,
-        cows=cows,
-        growing_plants_positions=growing_plants_positions,
-        growing_plants_age=growing_plants_age,
-        growing_plants_mask=growing_plants_mask,
-        achievements=jnp.zeros((22,), dtype=bool),
-        light_level=calculate_light_level(0),
-        timestep=0,
-    )
-
-    return state
+# def generate_random_world(rng, params: EnvParams, static_params: StaticEnvParams):
+#     # Zombies
+#
+#     z_pos = jnp.zeros((static_params.max_zombies, 2), dtype=jnp.int32)
+#     z_health = jnp.ones(static_params.max_zombies, dtype=jnp.int32)
+#     z_mask = jnp.zeros(static_params.max_zombies, dtype=bool)
+#
+#     # z_pos = z_pos.at[0].set(player_position + jnp.array([1, 0]))
+#     # z_mask = z_mask.at[0].set(True)
+#
+#     zombies = Mobs(
+#         position=z_pos,
+#         health=z_health,
+#         mask=z_mask,
+#         attack_cooldown=jnp.zeros(static_params.max_zombies, dtype=jnp.int32),
+#     )
+#
+#     # Skeletons
+#     sk_positions = jnp.zeros((static_params.max_skeletons, 2), dtype=jnp.int32)
+#     sk_healths = jnp.zeros(static_params.max_skeletons, dtype=jnp.int32)
+#     sk_mask = jnp.zeros(static_params.max_skeletons, dtype=bool)
+#
+#     skeletons = Mobs(
+#         position=sk_positions,
+#         health=sk_healths,
+#         mask=sk_mask,
+#         attack_cooldown=jnp.zeros(static_params.max_skeletons, dtype=jnp.int32),
+#     )
+#
+#     # Arrows
+#     arrow_positions = jnp.zeros((static_params.max_arrows, 2), dtype=jnp.int32)
+#     arrow_healths = jnp.zeros(static_params.max_arrows, dtype=jnp.int32)
+#     arrow_masks = jnp.zeros(static_params.max_arrows, dtype=bool)
+#
+#     arrows = Mobs(
+#         position=arrow_positions,
+#         health=arrow_healths,
+#         mask=arrow_masks,
+#         attack_cooldown=jnp.zeros(static_params.max_arrows, dtype=jnp.int32),
+#     )
+#
+#     arrow_directions = jnp.ones((static_params.max_arrows, 2), dtype=jnp.int32)
+#
+#     # Cows
+#     cows = Mobs(
+#         position=jnp.zeros((static_params.max_cows, 2), dtype=jnp.int32),
+#         health=jnp.ones(static_params.max_cows, dtype=jnp.int32) * params.cow_health,
+#         mask=jnp.zeros(static_params.max_cows, dtype=bool),
+#         attack_cooldown=jnp.zeros(static_params.max_cows, dtype=jnp.int32),
+#     )
+#
+#     # Plants
+#     growing_plants_positions = jnp.zeros(
+#         (static_params.max_growing_plants, 2), dtype=jnp.int32
+#     )
+#     growing_plants_age = jnp.zeros(static_params.max_growing_plants, dtype=jnp.int32)
+#     growing_plants_mask = jnp.zeros(static_params.max_growing_plants, dtype=bool)
+#
+#     rng, _rng = jax.random.split(rng)
+#     map = jax.random.choice(
+#         _rng, jnp.arange(2, 17), shape=static_params.map_size
+#     ).astype(int)
+#
+#     state = EnvState(
+#         map=map,
+#         player_position=jnp.zeros(2, dtype=jnp.int32),
+#         player_direction=Action.UP.value,
+#         player_health=9,
+#         player_food=9,
+#         player_drink=9,
+#         player_energy=9,
+#         player_recover=0.0,
+#         player_hunger=0.0,
+#         player_thirst=0.0,
+#         player_fatigue=0.0,
+#         is_sleeping=False,
+#         inventory=Inventory.generate_inventory(params.num_players),
+#         zombies=zombies,
+#         skeletons=skeletons,
+#         arrows=arrows,
+#         arrow_directions=arrow_directions,
+#         cows=cows,
+#         growing_plants_positions=growing_plants_positions,
+#         growing_plants_age=growing_plants_age,
+#         growing_plants_mask=growing_plants_mask,
+#         achievements=jnp.zeros((22,), dtype=bool),
+#         light_level=calculate_light_level(0, params),
+#         timestep=0,
+#     )
+#
+#     return state
