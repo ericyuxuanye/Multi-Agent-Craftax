@@ -229,10 +229,11 @@ def load_all_textures(block_pixel_size):
     )
 
     # player
-    pad_pixels = (
-        (OBS_DIM[0] // 2) * block_pixel_size,
-        (OBS_DIM[1] // 2) * block_pixel_size,
-    )
+    # Since we are drawing the players one by one anyways, we no longer need this
+    # pad_pixels = (
+    #     (OBS_DIM[0] // 2) * block_pixel_size,
+    #     (OBS_DIM[1] // 2) * block_pixel_size,
+    # )
 
     player_textures = [
         load_texture("player-left.png", block_pixel_size, clamp_alpha=False),
@@ -242,13 +243,14 @@ def load_all_textures(block_pixel_size):
         load_texture("player-sleep.png", block_pixel_size, clamp_alpha=False),
     ]
 
-    full_map_player_textures_rgba = [
-        jnp.pad(
-            player_texture,
-            ((pad_pixels[0], pad_pixels[0]), (pad_pixels[1], pad_pixels[1]), (0, 0)),
-        )
-        for player_texture in player_textures
-    ]
+    full_map_player_textures_rgba = player_textures
+    # full_map_player_textures_rgba = [
+    #     jnp.pad(
+    #         player_texture,
+    #         ((pad_pixels[0], pad_pixels[0]), (pad_pixels[1], pad_pixels[1]), (0, 0)),
+    #     )
+    #     for player_texture in player_textures
+    # ]
 
     full_map_player_textures = jnp.array(
         [player_texture[:, :, :3] for player_texture in full_map_player_textures_rgba]

@@ -1873,8 +1873,9 @@ def break_ties(rng, state, action):
             dup_count, visited = jax.lax.fori_loop(
                 i + 1, len(action), _visit_nodes, (1, visited)
             )
+            jax.debug.print("dup count: {}", dup_count)
             rng, _rng = jax.random.split(rng)
-            allowed_player = jax.random.choice(_rng, dup_count)
+            allowed_player = jax.random.randint(_rng, (), 0, dup_count)
 
             # Make all other players do nothing
             def _update_actions(j, count_and_action):
@@ -1922,11 +1923,12 @@ def break_ties(rng, state, action):
         _, is_placing = jax.lax.scan(_helper, None, PLACEMENT_ACTIONS)
         return is_placing.sum() > 0
 
+    rng, _rng = jax.random.split(rng)
     rng, action, _ = jax.lax.fori_loop(
         0,
         len(action),
         _process(_is_do),
-        (rng, action, jax.numpy.zeros_like(action, dtype=bool)),
+        (_rng, action, jax.numpy.zeros_like(action, dtype=bool)),
     )
 
     rng, action, _ = jax.lax.fori_loop(
@@ -2023,6 +2025,11 @@ def craftax_step(rng, state, actions, params, static_params):
     actions = jax.lax.select(
         state.is_sleeping, jnp.full_like(actions, Action.NOOP.value), actions
     )
+
+    # Two players cannot operate on same block
+    # rng, _rng = jax.random.split(rng)
+    # actions = break_ties(_rng, state, actions)
+    # jax.debug.print("action: {}", actions)
 
     # Crafting
     state = do_crafting(state, actions)

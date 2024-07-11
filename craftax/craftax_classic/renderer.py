@@ -157,15 +157,56 @@ def render_craftax_pixels(state, block_pixel_size, num_players, player=0):
         player_texture_index = jax.lax.select(
             state.is_sleeping[i], 4, state.player_direction[i] - 1
         )
-        map_pixels = (
-            map_pixels
-            * (1 - textures["full_map_player_textures_alpha"][player_texture_index])
-            + textures["full_map_player_textures"][player_texture_index]
-            * textures["full_map_player_textures_alpha"][player_texture_index]
+        local_position = (
+            state.player_position[i]
+            - state.player_position[player]
+            + jnp.ones((2,), dtype=jnp.int32) * (obs_dim_array // 2)
+        )
+        on_screen = jnp.logical_and(
+            local_position > 0, local_position < obs_dim_array
+        ).all()
+        # map_pixels = (
+        #     map_pixels
+        #     * (1 - textures["full_map_player_textures_alpha"][player_texture_index])
+        #     + textures["full_map_player_textures"][player_texture_index]
+        #     * textures["full_map_player_textures_alpha"][player_texture_index]
+        # )
+        player_texture = textures["full_map_player_textures"][player_texture_index] * on_screen
+
+        player_texture_with_background = (
+            1 - textures["full_map_player_textures_alpha"][player_texture_index] * on_screen
+        )
+
+        player_texture_with_background = (
+            player_texture_with_background
+            * jax.lax.dynamic_slice(
+                map_pixels,
+                (
+                    local_position[0] * block_pixel_size,
+                    local_position[1] * block_pixel_size,
+                    0,
+                ),
+                (block_pixel_size, block_pixel_size, 3),
+            )
+        )
+
+        player_texture_with_background = (
+            player_texture_with_background
+            + player_texture * textures["full_map_player_textures_alpha"][player_texture_index]
+        )
+
+        map_pixels = jax.lax.dynamic_update_slice(
+            map_pixels,
+            player_texture_with_background,
+            (
+                local_position[0] * block_pixel_size,
+                local_position[1] * block_pixel_size,
+                0,
+            ),
         )
         return map_pixels
 
-    # map_pixels = jax.lax.fori_loop(0, num_players, _render_player, map_pixels)
+    map_pixels = jax.lax.fori_loop(0, num_players, _render_player, map_pixels)
     map_pixels = _render_player(player, map_pixels)
 
     # Render mobs
