@@ -111,7 +111,7 @@ class CraftaxClassicSymbolicEnvNoAutoReset(EnvironmentNoAutoReset):
 
 
 class CraftaxClassicSymbolicEnv(environment.Environment):
-    def __init__(self, static_env_params: StaticEnvParams = None):
+    def __init__(self, static_env_params: StaticEnvParams | None = None):
         super().__init__()
 
         if static_env_params is None:

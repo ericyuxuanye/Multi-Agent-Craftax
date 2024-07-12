@@ -260,6 +260,26 @@ def do_action(rng, state, action, static_params):
     )
 
     # BLOCKS
+
+    # This is a function we use to scan to update the map
+    def _get_update_block(pred: jax.Array, replace_block_type: int):
+        """
+        Returns an updater function we can use with `scan`
+
+        pred: array to tell us whether we are mining the block, such as `is_mining_tree`
+        replace_block_type: block to replace with
+        """
+        def _update_block(map, idx):
+            block_pos = block_position[idx]
+            block_val = jax.lax.select(
+                pred[idx],
+                replace_block_type,
+                map[block_pos[0], block_pos[1]]
+            )
+            map = map.at[block_pos[0], block_pos[1]].set(block_val)
+            return map, None
+        return _update_block
+
     # Tree
     can_mine_tree = True
     is_mining_tree = jnp.logical_and(
@@ -267,12 +287,17 @@ def do_action(rng, state, action, static_params):
         can_mine_tree,
     )
     is_mining_tree = jnp.logical_and(is_mining_tree, is_do)
-    mined_tree_block = jax.lax.select(
-        is_mining_tree,
-        jnp.full((len(state.player_position),), BlockType.GRASS.value),
-        state.map[block_position[:, 0], block_position[:, 1]],
+    # mined_tree_block = jax.lax.select(
+    #     is_mining_tree,
+    #     jnp.full((len(state.player_position),), BlockType.GRASS.value),
+    #     state.map[block_position[:, 0], block_position[:, 1]],
+    # )
+    # new_map = state.map.at[block_position[:, 0], block_position[:, 1]].set(mined_tree_block)
+    new_map, _ = jax.lax.scan(
+        _get_update_block(is_mining_tree, BlockType.GRASS.value),
+        state.map,
+        jnp.arange(len(action))
     )
-    new_map = state.map.at[block_position[:, 0], block_position[:, 1]].set(mined_tree_block)
     new_inventory = state.inventory.replace(
         wood=state.inventory.wood + 1 * is_mining_tree
     )
@@ -287,12 +312,17 @@ def do_action(rng, state, action, static_params):
         can_mine_stone,
     )
     is_mining_stone = jnp.logical_and(is_mining_stone, is_do)
-    mined_stone_block = jax.lax.select(
-        is_mining_stone,
-        jnp.full((len(state.player_position),), BlockType.PATH.value),
-        new_map[block_position[:, 0], block_position[:, 1]],
+    # mined_stone_block = jax.lax.select(
+    #     is_mining_stone,
+    #     jnp.full((len(state.player_position),), BlockType.PATH.value),
+    #     new_map[block_position[:, 0], block_position[:, 1]],
+    # )
+    # new_map = new_map.at[block_position[:, 0], block_position[:, 1]].set(mined_stone_block)
+    new_map, _ = jax.lax.scan(
+        _get_update_block(is_mining_stone, BlockType.PATH.value),
+        new_map,
+        jnp.arange(len(action))
     )
-    new_map = new_map.at[block_position[:, 0], block_position[:, 1]].set(mined_stone_block)
     new_inventory = new_inventory.replace(
         stone=state.inventory.stone + 1 * is_mining_stone
     )
@@ -309,12 +339,17 @@ def do_action(rng, state, action, static_params):
         can_mine_coal,
     )
     is_mining_coal = jnp.logical_and(is_mining_coal, is_do)
-    mined_coal_block = jax.lax.select(
-        is_mining_coal,
-        jnp.full((len(state.player_position),), BlockType.PATH.value),
-        new_map[block_position[:, 0], block_position[:, 1]],
+    # mined_coal_block = jax.lax.select(
+    #     is_mining_coal,
+    #     jnp.full((len(state.player_position),), BlockType.PATH.value),
+    #     new_map[block_position[:, 0], block_position[:, 1]],
+    # )
+    # new_map = new_map.at[block_position[:, 0], block_position[:, 1]].set(mined_coal_block)
+    new_map, _ = jax.lax.scan(
+        _get_update_block(is_mining_coal, BlockType.PATH.value),
+        new_map,
+        jnp.arange(len(action))
     )
-    new_map = new_map.at[block_position[:, 0], block_position[:, 1]].set(mined_coal_block)
     new_inventory = new_inventory.replace(
         coal=state.inventory.coal + 1 * is_mining_coal
     )
@@ -329,12 +364,17 @@ def do_action(rng, state, action, static_params):
         can_mine_iron,
     )
     is_mining_iron = jnp.logical_and(is_mining_iron, is_do)
-    mined_iron_block = jax.lax.select(
-        is_mining_iron,
-        jnp.full((len(state.player_position),), BlockType.PATH.value),
-        new_map[block_position[:, 0], block_position[:, 1]],
+    # mined_iron_block = jax.lax.select(
+    #     is_mining_iron,
+    #     jnp.full((len(state.player_position),), BlockType.PATH.value),
+    #     new_map[block_position[:, 0], block_position[:, 1]],
+    # )
+    # new_map = new_map.at[block_position[:, 0], block_position[:, 1]].set(mined_iron_block)
+    new_map, _ = jax.lax.scan(
+        _get_update_block(is_mining_iron, BlockType.PATH.value),
+        new_map,
+        jnp.arange(len(action))
     )
-    new_map = new_map.at[block_position[:, 0], block_position[:, 1]].set(mined_iron_block)
     new_inventory = new_inventory.replace(
         iron=state.inventory.iron + 1 * is_mining_iron
     )
@@ -349,12 +389,17 @@ def do_action(rng, state, action, static_params):
         can_mine_diamond,
     )
     is_mining_diamond = jnp.logical_and(is_mining_diamond, is_do)
-    mined_diamond_block = jax.lax.select(
-        is_mining_diamond,
-        jnp.full((len(state.player_position),), BlockType.PATH.value),
-        new_map[block_position[:, 0], block_position[:, 1]],
+    # mined_diamond_block = jax.lax.select(
+    #     is_mining_diamond,
+    #     jnp.full((len(state.player_position),), BlockType.PATH.value),
+    #     new_map[block_position[:, 0], block_position[:, 1]],
+    # )
+    # new_map = new_map.at[block_position[:, 0], block_position[:, 1]].set(mined_diamond_block)
+    new_map, _ = jax.lax.scan(
+        _get_update_block(is_mining_diamond, BlockType.PATH.value),
+        new_map,
+        jnp.arange(len(action))
     )
-    new_map = new_map.at[block_position[:, 0], block_position[:, 1]].set(mined_diamond_block)
     new_inventory = new_inventory.replace(
         diamond=state.inventory.diamond + 1 * is_mining_diamond
     )
@@ -401,12 +446,17 @@ def do_action(rng, state, action, static_params):
         state.map[block_position[:, 0], block_position[:, 1]] == BlockType.RIPE_PLANT.value
     )
     is_eating_plant = jnp.logical_and(is_eating_plant, is_do)
-    new_plant = jax.lax.select(
-        is_eating_plant,
-        jnp.full((len(state.player_position),), BlockType.PLANT.value),
-        new_map[block_position[:, 0], block_position[:, 1]],
+    # new_plant = jax.lax.select(
+    #     is_eating_plant,
+    #     jnp.full((len(state.player_position),), BlockType.PLANT.value),
+    #     new_map[block_position[:, 0], block_position[:, 1]],
+    # )
+    # new_map = new_map.at[block_position[:, 0], block_position[:, 1]].set(new_plant)
+    new_map, _ = jax.lax.scan(
+        _get_update_block(is_eating_plant, BlockType.RIPE_PLANT.value),
+        new_map,
+        jnp.arange(len(action))
     )
-    new_map = new_map.at[block_position[:, 0], block_position[:, 1]].set(new_plant)
     new_food = jax.lax.select(
         is_eating_plant, jnp.minimum(9, state.player_food + 4), state.player_food
     )
@@ -1844,64 +1894,15 @@ def break_ties(rng, state, action):
             rng_action_visited -- a tuple of (rng, actions, visited array)
             """
             rng, action, visited = rng_action_visited
-            action_pos = state.player_position[i] + DIRECTIONS[state.player_direction[i]]
+            action_pos = state.player_position + DIRECTIONS[state.player_direction]
 
-            def _is_on_player(index, carry) :
-                return jax.lax.select(i == index, carry, jnp.logical_or(jnp.equal(action_pos, agent_future_pos[index]).all(), carry))
+            is_same = (jnp.arange(len(action_pos)) >= i) & jnp.all(action_pos == action_pos[i], axis=1)
 
-            is_on_player = jnp.logical_and(eval_func(action[i]), jax.lax.fori_loop(0, len(action), _is_on_player, False))
-
-            def _visit_nodes(j, carry_and_visited):
-                carry, visited = carry_and_visited
-                other_action_pos = (
-                    state.player_position[j] + DIRECTIONS[state.player_direction[j]]
-                )
-                is_dup = jnp.logical_and(eval_func(action[j]), jnp.equal(action_pos, other_action_pos).all())
-                new_count = jax.lax.select(
-                    is_dup,
-                    carry + 1,
-                    carry,
-                )
-                visited = visited.at[j].set(
-                    jax.numpy.logical_or(
-                        is_dup,
-                        visited[j],
-                    )
-                )
-                return new_count, visited
-
-            dup_count, visited = jax.lax.fori_loop(
-                i + 1, len(action), _visit_nodes, (1, visited)
-            )
-            jax.debug.print("dup count: {}", dup_count)
+            new_action = jax.lax.select(is_same, jnp.full_like(action, Action.NOOP.value), action)
             rng, _rng = jax.random.split(rng)
-            allowed_player = jax.random.randint(_rng, (), 0, dup_count)
+            selected_idx = jax.random.choice(_rng, jnp.arange(len(new_action)), p=is_same)
+            new_action = new_action.at[selected_idx].set(action[selected_idx])
 
-            # Make all other players do nothing
-            def _update_actions(j, count_and_action):
-                count, action = count_and_action
-                other_action_pos = (
-                    state.player_position[j] + DIRECTIONS[state.player_direction[j]]
-                )
-                is_dup = jax.numpy.logical_and(eval_func(action[j]), jnp.equal(action_pos, other_action_pos).all())
-                # If we do the action on the same block and we are not the allowed player,
-                # we do a noop instead
-                action = action.at[j].set(
-                    jax.lax.select(
-                        is_dup
-                        & ((count != allowed_player) | is_on_player),
-                        Action.NOOP.value,
-                        action[j],
-                    )
-                )
-                count = jax.lax.select(
-                    is_dup,
-                    count + 1,
-                    count,
-                )
-                return count, action
-
-            _, new_action = jax.lax.fori_loop(i, len(action), _update_actions, (0, action))
             action = jax.lax.select(
                 ~visited[i] & eval_func(action[i]), new_action, action
             )
@@ -2027,9 +2028,8 @@ def craftax_step(rng, state, actions, params, static_params):
     )
 
     # Two players cannot operate on same block
-    # rng, _rng = jax.random.split(rng)
-    # actions = break_ties(_rng, state, actions)
-    # jax.debug.print("action: {}", actions)
+    rng, _rng = jax.random.split(rng)
+    actions = break_ties(_rng, state, actions)
 
     # Crafting
     state = do_crafting(state, actions)
