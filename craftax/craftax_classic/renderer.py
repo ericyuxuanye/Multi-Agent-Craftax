@@ -1,6 +1,7 @@
 from functools import partial
 
 from craftax.craftax_classic.constants import *
+from craftax.craftax_classic.game_logic import is_player_alive
 
 
 def render_craftax_symbolic(state, player=0):
@@ -153,7 +154,9 @@ def render_craftax_pixels(state, block_pixel_size, num_players, player=0):
     )
 
     # Render players
+    player_alive = is_player_alive(state)
     def _render_player(i, map_pixels):
+        old_map_pixels = map_pixels
         player_texture_index = jax.lax.select(
             state.is_sleeping[i], 4, state.player_direction[i] - 1
         )
@@ -204,7 +207,11 @@ def render_craftax_pixels(state, block_pixel_size, num_players, player=0):
                 0,
             ),
         )
-        return map_pixels
+        return jax.lax.select(
+            player_alive[i],
+            map_pixels,
+            old_map_pixels
+        )
 
     map_pixels = jax.lax.fori_loop(0, num_players, _render_player, map_pixels)
     map_pixels = _render_player(player, map_pixels)

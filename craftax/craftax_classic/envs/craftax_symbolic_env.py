@@ -1,19 +1,17 @@
-from jax import lax
-from gymnax.environments import spaces, environment
-from typing import Tuple, Optional
-import chex
+import functools
+from typing import Any, Optional, Tuple, Union, override
 
-from craftax.environment_base.environment_bases import EnvironmentNoAutoReset
-from craftax.craftax_classic.envs.common import compute_score
+import chex
 from craftax.craftax_classic.constants import *
+from craftax.craftax_classic.envs.common import compute_score
+from craftax.craftax_classic.envs.craftax_state import (EnvParams, EnvState,
+                                                        StaticEnvParams)
 from craftax.craftax_classic.game_logic import craftax_step, is_game_over
-from craftax.craftax_classic.envs.craftax_state import (
-    EnvState,
-    EnvParams,
-    StaticEnvParams,
-)
 from craftax.craftax_classic.renderer import render_craftax_symbolic
 from craftax.craftax_classic.world_gen import generate_world
+from craftax.environment_base.environment_bases import EnvironmentNoAutoReset
+from gymnax.environments import environment, spaces
+from jax import lax
 
 
 def get_map_obs_shape():
@@ -142,6 +140,39 @@ class CraftaxClassicSymbolicEnv(environment.Environment):
             done,
             info,
         )
+
+    @override
+    def discount(self, state, params) -> jax.Array:
+        """Return a discount of zero if the episode has terminated."""
+        return jax.lax.select(
+            self.is_terminal(state, params),
+            jnp.zeros(len(state.player_position), dtype=float),
+            jnp.ones(len(state.player_position), dtype=float)
+        )
+
+    # This is copied from gymnax Environment because the done needs to be jnp.all
+    @functools.partial(jax.jit, static_argnums=(0,))
+    def step(
+        self,
+        key: chex.PRNGKey,
+        state: EnvState,
+        action: Union[int, float, chex.Array],
+        params: Optional[EnvState] = None,
+    ) -> Tuple[chex.Array, EnvState, jnp.ndarray, jnp.ndarray, dict[Any, Any]]:
+        """Performs step transitions in the environment."""
+        # Use default env parameters if no others specified
+        if params is None:
+            params = self.default_params
+        key, key_reset = jax.random.split(key)
+        obs_st, state_st, reward, done, info = self.step_env(key, state, action, params)
+        obs_re, state_re = self.reset_env(key_reset, params)
+        # Auto-reset environment based on termination
+        all_done = jnp.all(done)
+        state = jax.tree_map(
+            lambda x, y: jax.lax.select(all_done, x, y), state_re, state_st
+        )
+        obs = jax.lax.select(all_done, obs_re, obs_st)
+        return obs, state, reward, done, info
 
     def reset_env(
         self, rng: chex.PRNGKey, params: EnvParams

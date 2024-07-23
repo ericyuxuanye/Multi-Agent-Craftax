@@ -18,6 +18,7 @@ from craftax.craftax_classic.constants import (
 )
 from craftax.craftax_classic.envs.craftax_state import EnvParams
 from craftax.craftax_classic.envs.craftax_symbolic_env import CraftaxClassicSymbolicEnv
+from craftax.craftax_classic.game_logic import is_player_alive
 from craftax.craftax_classic.renderer import render_craftax_pixels
 from craftax.craftax_env import make_craftax_env_from_name
 
@@ -96,7 +97,7 @@ class CraftaxRenderer:
         return False
 
     def get_action_from_keypress(self, state, player=0):
-        if state.is_sleeping[player]:
+        if state.is_sleeping[player] and not is_player_alive(state)[player]:
             return Action.NOOP.value
         for event in self.pygame_events:
             if event.type == pygame.KEYDOWN:
