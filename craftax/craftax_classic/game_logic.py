@@ -1646,7 +1646,7 @@ def spawn_mobs(state, rng, params, static_params):
     # I will place dead players arbitrarily far for the distance calculation
     # so that they are effectively ignored
     eval_positions = jax.lax.select(
-        jnp.broadcast_to(is_player_alive(state).T, state.player_position.shape),
+        jnp.broadcast_to(is_player_alive(state).reshape(-1, 1), state.player_position.shape),
         state.player_position,
         jnp.full_like(state.player_position, 1000.0) # a big number
     )

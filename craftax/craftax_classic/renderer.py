@@ -2,6 +2,7 @@ from functools import partial
 
 from craftax.craftax_classic.constants import *
 from craftax.craftax_classic.game_logic import is_player_alive
+from craftax.craftax_classic.envs.craftax_state import Mobs
 
 
 def render_craftax_symbolic(state, player=0):
@@ -58,6 +59,20 @@ def render_craftax_symbolic(state, player=0):
         _add_mob_to_map,
         (mob_map, state.arrows, 3),
         jnp.arange(state.arrows.mask.shape[0]),
+    )
+    # Add other player positions to mob map
+    # I don't think players can be on the same square as mobs, so this should be fine.
+    players_as_mob = Mobs(
+        position=state.player_position,
+        health=state.player_health,
+        # No need to show current player as they will be in the center anyways
+        mask=is_player_alive(state).at[player].set(False),
+        attack_cooldown=jnp.zeros(state.player_health.shape),
+    )
+    (mob_map, _, _), _ = jax.lax.scan(
+        _add_mob_to_map,
+        (mob_map, players_as_mob, 4),
+        jnp.arange(state.player_position.shape[0])
     )
 
     all_map = jnp.concatenate([map_view_one_hot, mob_map], axis=-1)

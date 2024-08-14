@@ -37,11 +37,11 @@ def get_inventory_obs_shape():
 
 
 class CraftaxClassicSymbolicEnvNoAutoReset(EnvironmentNoAutoReset):
-    def __init__(self, static_env_params: StaticEnvParams = None):
+    def __init__(self, static_env_params: StaticEnvParams | None = None):
         super().__init__()
 
         if static_env_params is None:
-            static_env_params = self.default_static_params()
+            self.static_env_params = self.default_static_params()
         self.static_env_params = static_env_params
 
     @property

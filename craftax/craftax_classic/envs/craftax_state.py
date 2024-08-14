@@ -39,7 +39,7 @@ class Mobs:
     health: jnp.ndarray
     """An int array representing the mob healths"""
     mask: jnp.ndarray
-    """Actually a boolean array"""
+    """A boolean array, representing who's still alive"""
     attack_cooldown: jnp.ndarray
     """Actually an int array"""
 
@@ -145,7 +145,7 @@ class EnvParams:
 
 @struct.dataclass
 class StaticEnvParams:
-    num_players = 2
+    num_players: int = 3
     map_size: Tuple[int, int] = (64, 64)
 
     # Mobs
