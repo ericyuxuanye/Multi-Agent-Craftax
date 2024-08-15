@@ -1,13 +1,18 @@
+from typing import cast
+
+import jax
+import jax.numpy as jnp
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import jax
-from typing import cast
-from craftax.craftax_classic.envs.craftax_symbolic_env import CraftaxClassicSymbolicEnv
+from craftax.craftax_classic.envs.craftax_symbolic_env import \
+    CraftaxClassicSymbolicEnv
+from numpy.typing import NDArray
 from torch.distributions.categorical import Categorical
 
-from envs.craftax_state import EnvParams, StaticEnvParams
+from craftax.craftax_classic.renderer import render_craftax_pixels
+from envs.craftax_state import EnvParams, EnvState, StaticEnvParams
 
 ### Copied from CleanRL
 
@@ -135,7 +140,7 @@ class ClassicMetaController:
         self.iteration = 0
 
 
-    def run_some_episodes(self) -> None:
+    def train_some_episodes(self) -> None:
         """
         Run some episodes, and perform backpropagation on the agents
         """
@@ -201,7 +206,7 @@ class ClassicMetaController:
             clipfracs: list[float] = []
             for epoch in range(self.update_epochs):
                 np.random.shuffle(b_inds)
-                approx_kl = 0
+                approx_kl = torch.tensor(0)
                 for start in range(0, batch_size, minibatch_size):
                     end = start + minibatch_size
                     mb_inds = b_inds[start:end]
@@ -258,17 +263,81 @@ class ClassicMetaController:
             explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
             print("Agent", agent_idx, "loss:", loss.item())  # pyright: ignore
             print("Agent", agent_idx, "explained variance:", explained_var)
+            print("Agent", agent_idx, "KL divergence:", approx_kl.item())  # pyright: ignore
+            print("Agent", agent_idx, "old KL divergence:", old_approx_kl.item())  # pyright: ignore
+            print("Agent", agent_idx, "average return:", b_returns.mean().item())  # pyright: ignore
     
     def train(self):
         for episode in range(self.num_iterations):
             print("Episode", episode)
-            self.run_some_episodes()
+            self.train_some_episodes()
 
+    def run_one_episode(self) -> tuple[list[EnvState], list[NDArray[np.int32]], list[NDArray[np.float32]]]:
+        """
+        Runs a single episode, and returns a tuple containing
+        the list of states, the list of actions, and the list of rewards
+        """
+        self.rng, _rng = jax.random.split(self.rng)
+        next_obs, env_state = self.env.reset(_rng, self.env_params)
+        next_done: NDArray[np.bool] = np.zeros((1,), dtype=bool)
+        states: list[EnvState] = [env_state]
+        actions: list[NDArray[np.int32]] = []
+        rewards: list[NDArray[np.float32]] = []
+        while not np.all(next_done):
+            agent_actions = np.zeros(self.static_params.num_players, dtype=int)
+            with torch.no_grad():
+                for i, agent in enumerate(self.agents):
+                    action, logprob, _, value = agent.get_action_and_value(torch.from_numpy(np.asarray(next_obs[i])))
+                    agent_actions[i] = action
+            self.rng, _rng = jax.random.split(self.rng)
+            next_obs, env_state, reward, next_done, _info = self.env.step(_rng, env_state, agent_actions, self.env_params)
+            states.append(env_state)
+            actions.append(agent_actions)
+            rewards.append(reward)
+        return states, actions, rewards
+
+
+def replay_episode(states: list[EnvState], num_players: int, player: int = 0):
+    import pygame
+    pygame.init()
+    pygame.key.set_repeat(250, 75)
+    screen_size = (576, 576)
+    screen_surface = pygame.display.set_mode(screen_size)
+    render = jax.jit(render_craftax_pixels, static_argnums=(1,2))
+    state_idx = 0
+    done = False
+    clock = pygame.time.Clock()
+    while not done:
+        # Render
+        screen_surface.fill((0, 0, 0))
+
+        pixels = render(states[state_idx], block_pixel_size=64, num_players=num_players, player=player)
+        pixels = jnp.repeat(pixels, repeats=1, axis=0)
+        pixels = jnp.repeat(pixels, repeats=1, axis=1)
+
+        surface = pygame.surfarray.make_surface(np.array(pixels).transpose((1, 0, 2)))
+        screen_surface.blit(surface, (0, 0))
+
+        pygame.display.flip()
+
+        pygame_events = pygame.event.get()
+        for event in pygame_events:
+            if event.type == pygame.QUIT:
+                done = True
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_SPACE:
+                    state_idx += 1
+                    if state_idx == len(states):
+                        done = True
+
+        clock.tick(10)
 
 if __name__ == "__main__":
     metacontroller = ClassicMetaController(
         static_parameters=StaticEnvParams(num_players=4),
-        steps_each_time=1000,
-        num_iterations=10,
+        steps_each_time=300,
+        num_iterations=3,
     )
     metacontroller.train()
+    states, actions, rewards = metacontroller.run_one_episode()
+    replay_episode(states, 4)

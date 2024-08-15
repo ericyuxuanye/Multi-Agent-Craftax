@@ -2046,7 +2046,7 @@ def craftax_step(rng, state, actions, params, static_params):
 
     # dead players cannot do anything
     actions = jax.lax.select(
-        is_game_over(state, params),
+        was_dead,
         jnp.full_like(actions, Action.NOOP.value),
         actions
     )
