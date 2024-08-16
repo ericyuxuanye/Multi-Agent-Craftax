@@ -1,12 +1,14 @@
 from functools import partial
 
 from craftax.craftax_classic.constants import *
-from craftax.craftax_classic.game_logic import is_player_alive
+from craftax.craftax_classic.game_logic import are_players_alive
 from craftax.craftax_classic.envs.craftax_state import Mobs
 
 
 def render_craftax_symbolic(state, player=0):
     obs_dim_array = jnp.array([OBS_DIM[0], OBS_DIM[1]], dtype=jnp.int32)
+
+    players_alive = are_players_alive(state)
 
     # Map
     padded_grid = jnp.pad(
@@ -66,7 +68,7 @@ def render_craftax_symbolic(state, player=0):
         position=state.player_position,
         health=state.player_health,
         # No need to show current player as they will be in the center anyways
-        mask=is_player_alive(state).at[player].set(False),
+        mask=players_alive.at[player].set(False),
         attack_cooldown=jnp.zeros(state.player_health.shape),
     )
     (mob_map, _, _), _ = jax.lax.scan(
@@ -112,13 +114,15 @@ def render_craftax_symbolic(state, player=0):
 
     direction = jax.nn.one_hot(state.player_direction[player] - 1, num_classes=4)
 
+    is_alive = players_alive[player]
+
     all_flattened = jnp.concatenate(
         [
             all_map.flatten(),
             inventory,
             intrinsics,
             direction,
-            jnp.array([state.light_level, state.is_sleeping[player]]),
+            jnp.array([state.light_level, state.is_sleeping[player], is_alive]),
         ]
     )
 
@@ -169,7 +173,7 @@ def render_craftax_pixels(state, block_pixel_size, num_players, player=0):
     )
 
     # Render players
-    player_alive = is_player_alive(state)
+    player_alive = are_players_alive(state)
     def _render_player(i, map_pixels):
         old_map_pixels = map_pixels
         player_texture_index = jax.lax.select(

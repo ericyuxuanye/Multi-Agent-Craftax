@@ -31,9 +31,10 @@ def get_inventory_obs_shape():
     num_intrinsics = 4
     light_level = 1
     is_sleeping = 1
+    is_alive = 1
     direction = 4
 
-    return inv_size + num_intrinsics + light_level + is_sleeping + direction
+    return inv_size + num_intrinsics + light_level + is_sleeping + direction + is_alive
 
 
 class CraftaxClassicSymbolicEnvNoAutoReset(EnvironmentNoAutoReset):

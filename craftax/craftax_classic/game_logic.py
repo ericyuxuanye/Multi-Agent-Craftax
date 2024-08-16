@@ -17,9 +17,9 @@ def is_game_over(state, params):
 
     return ~params.god_mode & (done_steps | in_lava | is_dead)
 
-def is_player_alive(state):
+def are_players_alive(state):
     """
-    Whether the player is still in the game
+    Whether each player is still in the game
     """
     in_lava = (
         state.map[state.player_position[:, 0], state.player_position[:, 1]]
@@ -949,7 +949,7 @@ def is_in_mob(state, position):
     """Whether position is occupied by player or other entity"""
     return jnp.logical_or(
         state.mob_map[position[0], position[1]],
-        ((state.player_position == position).all(axis=1) & is_player_alive(state)).any(),
+        ((state.player_position == position).all(axis=1) & are_players_alive(state)).any(),
     )
 
 def is_in_mob_vec(state, position):
@@ -958,7 +958,7 @@ def is_in_mob_vec(state, position):
     """
     return jnp.logical_or(
         state.mob_map[position[:, 0], position[:, 1]],
-        (state.player_position == position).all(axis=1) & is_player_alive(state)
+        (state.player_position == position).all(axis=1) & are_players_alive(state)
     )
 
 
@@ -1646,7 +1646,7 @@ def spawn_mobs(state, rng, params, static_params):
     # I will place dead players arbitrarily far for the distance calculation
     # so that they are effectively ignored
     eval_positions = jax.lax.select(
-        jnp.broadcast_to(is_player_alive(state).reshape(-1, 1), state.player_position.shape),
+        jnp.broadcast_to(are_players_alive(state).reshape(-1, 1), state.player_position.shape),
         state.player_position,
         jnp.full_like(state.player_position, 1000.0) # a big number
     )
@@ -2042,18 +2042,13 @@ def craftax_step(rng, state, actions, params, static_params):
     init_drink = state.player_drink
     init_energy = state.player_energy
     # dead players don't change their state
-    was_dead = ~is_player_alive(state)
+    was_dead = ~are_players_alive(state)
 
-    # dead players cannot do anything
+    # dead and sleeping players cannot do anything
     actions = jax.lax.select(
-        was_dead,
+        was_dead | state.is_sleeping,
         jnp.full_like(actions, Action.NOOP.value),
         actions
-    )
-
-    # Interrupt action if sleeping
-    actions = jax.lax.select(
-        state.is_sleeping, jnp.full_like(actions, Action.NOOP.value), actions
     )
 
     # Two players cannot operate on same block
