@@ -150,7 +150,7 @@ class ClassicMetaController:
         self.env_params = env_params
         self.step_fn = jax.jit(jax.vmap(self.env.step, in_axes=(0, 0, 1, None), out_axes=(1, 0, 1, 1, 0)))
         self.reset_fn = jax.jit(jax.vmap(self.env.reset, in_axes=(0, None), out_axes=(1, 0)))
-        self.player_alive_check = jax.jit(jax.vmap(are_players_alive))
+        self.player_alive_check = jax.jit(jax.vmap(are_players_alive, out_axes=1))
         self.num_steps = num_steps
         self.device = torch.device(device)
         self.rng = jax.random.PRNGKey(np.random.randint(2**31))
@@ -199,7 +199,7 @@ class ClassicMetaController:
             CraftaxAgent(
                 self.observation_space.shape,
                 self.action_space.n,
-            )
+            ).to(device)
             for _ in range(self.static_params.num_players)
         ]
         self.optimizers = [
@@ -259,8 +259,8 @@ class ClassicMetaController:
                     self.actions[step, agent_idx] = action
                     self.actions[
                         step,
-                        np.asarray(~agents_alive[agent_idx] | env_state.is_sleeping[agent_idx]),
                         agent_idx,
+                        np.asarray(~agents_alive[agent_idx] | env_state.is_sleeping[:, agent_idx]),
                     ] = Action.NOOP.value
                     self.logprobs[step, agent_idx] = logprob
                     next_lstm_states[agent_idx] = next_lstm_state
@@ -399,18 +399,13 @@ class ClassicMetaController:
             )
             print("Agent", agent_idx, "loss:", loss.item())  # pyright: ignore
             print("Agent", agent_idx, "explained variance:", explained_var)
-            print(
-                "Agent",
-                agent_idx,
-                "KL divergence:",
-                approx_kl.item(),  # pyright: ignore
-            )
+            print("Agent", agent_idx, "KL divergence:", approx_kl.item())  # pyright: ignore
             print("Agent", agent_idx, "old KL divergence:", old_approx_kl.item())  # pyright: ignore
-            print("Agent", agent_idx, "average rewards:", self.rewards[:, agent_idx].mean().item())  # pyright: ignore
+            print("Agent", agent_idx, "average reward:", self.rewards[:, agent_idx].mean().item())  # pyright: ignore
 
     def train(self):
-        for episode in range(self.num_iterations):
-            print("Episode", episode)
+        for iteration in range(self.num_iterations):
+            print("Iteration", iteration)
             self.train_some_episodes()
 
     def run_one_episode(
@@ -443,9 +438,9 @@ class ClassicMetaController:
                 for i, agent in enumerate(self.agents):
                     action, logprob, _, value, next_lstm_state = (
                         agent.get_action_and_value(
-                            torch.from_numpy(np.asarray(next_obs[i])),
+                            torch.from_numpy(np.asarray(next_obs[i])).to(self.device),
                             next_lstm_states[i],
-                            torch.from_numpy(np.asarray(next_done[i], dtype=np.float32)),
+                            torch.from_numpy(np.asarray(next_done[i], dtype=np.float32)).to(self.device),
                         )
                     )
                     agent_actions[i] = action
@@ -501,9 +496,12 @@ def replay_episode(states: list[EnvState], num_players: int, player: int = 0):
 if __name__ == "__main__":
     metacontroller = ClassicMetaController(
         static_parameters=StaticEnvParams(num_players=4),
-        num_steps=300,
-        num_iterations=10,
+        num_envs=128,
+        num_minibatches=8,
+        num_steps=100,
+        num_iterations=25,
         update_epochs=5,
+        device="cpu"
     )
     metacontroller.train()
     states, actions, rewards = metacontroller.run_one_episode()
