@@ -79,20 +79,15 @@ class CraftaxAgent(nn.Module):
         x: Tensor,
         lstm_state: tuple[Tensor, Tensor],
         done: Tensor,
-        action: Tensor | None = None,
-    ) -> tuple[Tensor, Tensor, Tensor, Tensor, tuple[Tensor, Tensor]]:
+    ) -> tuple[Categorical, Tensor, tuple[Tensor, Tensor]]:
         """
         Returns the action, log probs, entropy, value, and lstm_state
         """
         hidden, lstm_state = self.get_states(x, lstm_state, done)
         logits = self.actor(hidden)
         probs = Categorical(logits=logits)
-        if action is None:
-            action = probs.sample()
         return (
-            action,
-            probs.log_prob(action),
-            probs.entropy(),
+            probs,
             self.critic(hidden),
             lstm_state,
         )
@@ -250,18 +245,16 @@ class ClassicMetaController:
             with torch.no_grad():
                 agents_alive = self.player_alive_check(env_state)
                 for agent_idx, agent in enumerate(self.agents):
-                    action, logprob, _, value, next_lstm_state = (
+                    probs, value, next_lstm_state = (
                         agent.get_action_and_value(
                             next_obs[agent_idx], next_lstm_states[agent_idx], next_done[agent_idx]
                         )
                     )
+                    action = probs.sample()
+                    action[np.asarray(~agents_alive[agent_idx] | env_state.is_sleeping[:, agent_idx])] = Action.NOOP.value
+                    logprob = probs.log_prob(action)
                     self.values[step, agent_idx] = value.flatten()
                     self.actions[step, agent_idx] = action
-                    self.actions[
-                        step,
-                        agent_idx,
-                        np.asarray(~agents_alive[agent_idx] | env_state.is_sleeping[:, agent_idx]),
-                    ] = Action.NOOP.value
                     self.logprobs[step, agent_idx] = logprob
                     next_lstm_states[agent_idx] = next_lstm_state
             self.rng, _rng = jax.random.split(self.rng)
@@ -329,15 +322,17 @@ class ClassicMetaController:
                     mbenvinds = envinds[start:end]
                     mb_inds = flatinds[:, mbenvinds].ravel()  # be really careful about the index
 
-                    _, newlogprob, entropy, newvalue, _ = agent.get_action_and_value(
+                    probs, newvalue, _ = agent.get_action_and_value(
                         b_obs[mb_inds],
                         (
                             initial_lstm_states[agent_idx][0][:, mbenvinds],
                             initial_lstm_states[agent_idx][1][:, mbenvinds],
                         ),
                         b_dones[mb_inds],
-                        b_actions.long()[mb_inds],
                     )
+                    action = b_actions.long()[mb_inds]
+                    newlogprob = probs.log_prob(action)
+                    entropy = probs.entropy()
                     logratio = newlogprob - b_logprobs[mb_inds]
                     ratio = logratio.exp()
 
@@ -436,13 +431,14 @@ class ClassicMetaController:
             agent_actions = np.zeros(self.static_params.num_players, dtype=int)
             with torch.no_grad():
                 for i, agent in enumerate(self.agents):
-                    action, logprob, _, value, next_lstm_state = (
+                    probs, value, next_lstm_state = (
                         agent.get_action_and_value(
                             torch.from_numpy(np.asarray(next_obs[i])).to(self.device),
                             next_lstm_states[i],
                             torch.from_numpy(np.asarray(next_done[i], dtype=np.float32)).to(self.device),
                         )
                     )
+                    action = probs.sample()
                     agent_actions[i] = action
                     next_lstm_states[i] = next_lstm_state
             self.rng, _rng = jax.random.split(self.rng)
@@ -499,7 +495,7 @@ if __name__ == "__main__":
         num_envs=128,
         num_minibatches=8,
         num_steps=100,
-        num_iterations=25,
+        num_iterations=5,
         update_epochs=5,
         device="cpu"
     )
