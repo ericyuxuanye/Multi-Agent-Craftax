@@ -451,7 +451,7 @@ class ClassicMetaController:
         return states, actions, rewards
 
 
-def replay_episode(states: list[EnvState], num_players: int, player: int = 0):
+def replay_episode(states: list[EnvState], actions: list[NDArray[np.int32]], num_players: int, player: int = 0):
     import pygame
 
     pygame.init()
@@ -482,6 +482,8 @@ def replay_episode(states: list[EnvState], num_players: int, player: int = 0):
             if event.type == pygame.QUIT:
                 done = True
             if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
+                if state_idx < len(actions):
+                    print([Action(x).name for x in actions[state_idx]])
                 state_idx += 1
                 if state_idx == len(states):
                     done = True
@@ -495,10 +497,10 @@ if __name__ == "__main__":
         num_envs=128,
         num_minibatches=8,
         num_steps=100,
-        num_iterations=5,
+        num_iterations=20,
         update_epochs=5,
         device="cpu"
     )
     metacontroller.train()
     states, actions, rewards = metacontroller.run_one_episode()
-    replay_episode(states, 4)
+    replay_episode(states, actions, 4)

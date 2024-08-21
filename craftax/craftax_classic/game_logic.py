@@ -1903,7 +1903,7 @@ def break_ties(rng, state, action):
                 representing whether the action is of the type that cannot be duplicated
                 by two players
         """
-        def _process_impl(i, rng_action_visited):
+        def _process_impl(rng_action_visited, i):
             """
             Edits the action such that for all actions that operate on the same
             block as `action[i]`, we randomly choose one, and make the rest NOOP
@@ -1923,7 +1923,7 @@ def break_ties(rng, state, action):
             action = jax.lax.select(
                 ~visited[i] & eval_func(action[i]), new_action, action
             )
-            return rng, action, visited
+            return (rng, action, visited), None
         return _process_impl
 
     # DO
@@ -1942,18 +1942,16 @@ def break_ties(rng, state, action):
         return is_placing.sum() > 0
 
     rng, _rng = jax.random.split(rng)
-    rng, action, _ = jax.lax.fori_loop(
-        0,
-        len(action),
+    (rng, action, _), _ = jax.lax.scan(
         _process(_is_do),
         (_rng, action, jax.numpy.zeros_like(action, dtype=bool)),
+        jnp.arange(len(action)),
     )
 
-    rng, action, _ = jax.lax.fori_loop(
-        0,
-        len(action),
+    (rng, action, _), _ = jax.lax.scan(
         _process(_is_placing_block),
         (rng, action, jax.numpy.zeros_like(action, dtype=bool)),
+        jnp.arange(len(action)),
     )
 
     return action
