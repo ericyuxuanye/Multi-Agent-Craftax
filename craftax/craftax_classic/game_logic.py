@@ -1054,6 +1054,7 @@ def update_mobs(rng, state, params, static_params):
 
         is_waking_player = jnp.logical_and(state.is_sleeping[closest_player_idx], is_attacking_player)
 
+        # TODO: Maybe check if there are other players also at `closest_player_idx`
         state = state.replace(
             player_health=state.player_health.at[closest_player_idx].set(state.player_health[closest_player_idx] - zombie_damage * is_attacking_player),
             is_sleeping=state.is_sleeping.at[closest_player_idx].set(jnp.logical_and(

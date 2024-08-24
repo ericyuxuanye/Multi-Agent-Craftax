@@ -63,7 +63,6 @@ def render_craftax_symbolic(state, player=0):
         jnp.arange(state.arrows.mask.shape[0]),
     )
     # Add other player positions to mob map
-    # I don't think players can be on the same square as mobs, so this should be fine.
     players_as_mob = Mobs(
         position=state.player_position,
         health=state.player_health,

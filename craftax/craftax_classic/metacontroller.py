@@ -497,7 +497,7 @@ if __name__ == "__main__":
         num_envs=128,
         num_minibatches=8,
         num_steps=100,
-        num_iterations=20,
+        num_iterations=10,
         update_epochs=5,
         device="cpu"
     )

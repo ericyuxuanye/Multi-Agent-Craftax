@@ -6,15 +6,14 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
+from flax.linen import initializers
+
 from craftax.craftax.craftax_state import EnvState
 from craftax.craftax_classic.constants import Action
-from craftax.craftax_classic.envs.craftax_state import (EnvParams,
-                                                        StaticEnvParams)
-from craftax.craftax_classic.envs.craftax_symbolic_env import \
-    CraftaxClassicSymbolicEnv
+from craftax.craftax_classic.envs.craftax_state import EnvParams, StaticEnvParams
+from craftax.craftax_classic.envs.craftax_symbolic_env import CraftaxClassicSymbolicEnv
 from craftax.craftax_classic.game_logic import are_players_alive
 from craftax.craftax_classic.renderer import render_craftax_pixels
-from flax.linen import initializers
 
 
 class LSTM(nn.Module):
@@ -108,7 +107,7 @@ class ClassicMetaController:
         num_envs: int = 8,
         num_steps: int = 300,
         num_iterations: int = 100,
-        learning_rate: float = 2.5e-4,
+        learning_rate: float = 2.5e-3,
         anneal_lr: bool = True,
         gamma: float = 0.99,
         gae_lambda: float = 0.95,
@@ -120,7 +119,7 @@ class ClassicMetaController:
         ent_coef: float = 0.01,
         vf_coef: float = 0.5,
         max_grad_norm: float = 0.5,
-        target_kl: float | None = None,
+        # target_kl: float | None = None,
     ):
         """
         Params:
@@ -160,7 +159,6 @@ class ClassicMetaController:
         self.observation_space = self.env.observation_space(env_params)
         self.action_space = self.env.action_space(env_params)
         # Learning params
-        self.batch_size = int(self.num_envs * self.num_steps)
         self.learning_rate = learning_rate
         self.num_envs = num_envs
         self.anneal_lr = anneal_lr
@@ -174,7 +172,7 @@ class ClassicMetaController:
         self.ent_coef = ent_coef
         self.vf_coef = vf_coef
         self.max_grad_norm = max_grad_norm
-        self.target_kl = target_kl
+        # self.target_kl = target_kl
         self.num_iterations = num_iterations
 
         self.agent = CraftaxAgent(self.action_space.n)
@@ -351,7 +349,7 @@ class ClassicMetaController:
                 t == self.num_steps - 1, 1 - next_done, 1 - dones[t + 1]
             )
             nextvalues = jax.lax.select(
-                t == 1 - self.num_steps - 1, next_values, values[t + 1]
+                t == self.num_steps - 1, next_values, values[t + 1]
             )
             delta = rewards[t] + self.gamma * nextvalues * nextnonterminal - values[t]
             lastgaelam = (
@@ -384,6 +382,7 @@ class ClassicMetaController:
             probs = jax.nn.softmax(logits)
             newlogprobs = jnp.log(probs)
             entropy = -jnp.sum(probs * newlogprobs, axis=-1)
+            # basically newlogprobs[action], where action tells us what to take in the last dimension
             newlogprob = jnp.take_along_axis(
                 newlogprobs, jnp.expand_dims(mb_actions.astype(int), axis=-1), axis=-1
             ).squeeze(-1)
@@ -573,7 +572,7 @@ class ClassicMetaController:
             logits, value, next_lstm_state = self.agent.apply(  # pyright: ignore
                 model_param, next_obs, next_lstm_state, next_done
             )
-            action = jax.random.categorical(rng, logits).astype(int).squeeze()
+            action = jax.random.categorical(rng, logits).squeeze()
             return action, next_lstm_state
 
         eval_fn = jax.jit(jax.vmap(eval_agent))
@@ -603,7 +602,6 @@ def replay_episode(
     pygame.init()
     pygame.key.set_repeat(250, 75)
     screen_surface = pygame.display.set_mode((576, 576))
-    render = render_craftax_pixels
     state_idx = 0
     done = False
     clock = pygame.time.Clock()
@@ -611,7 +609,7 @@ def replay_episode(
         # Render
         screen_surface.fill((0, 0, 0))
 
-        pixels = render(
+        pixels = render_craftax_pixels(
             states[state_idx],
             block_pixel_size=64,
             num_players=num_players,
@@ -642,11 +640,13 @@ if __name__ == "__main__":
     metacontroller = ClassicMetaController(
         static_parameters=StaticEnvParams(num_players=4),
         num_envs=128,
-        num_minibatches=4,
+        num_minibatches=8,
         num_steps=200,
-        num_iterations=20,
+        num_iterations=25,
         update_epochs=5,
         anneal_lr=False,
+        learning_rate=2.5e-4,
+        max_grad_norm=1.0,
     )
     params, opt_states = metacontroller.train()
     states, actions, rewards = metacontroller.run_one_episode(params)
