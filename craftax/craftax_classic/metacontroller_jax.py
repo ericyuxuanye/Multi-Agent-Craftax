@@ -71,22 +71,32 @@ class CraftaxAgent(nn.Module):
         self.network = nn.Sequential(
             [
                 nn.Dense(64, kernel_init=initializers.orthogonal(jnp.sqrt(2))),
-                nn.tanh,
-                nn.Dense(64, kernel_init=initializers.orthogonal(jnp.sqrt(2))),
-                nn.tanh,
+                nn.relu,
                 nn.Dense(32, kernel_init=initializers.orthogonal(jnp.sqrt(2))),
-                nn.tanh,
+                nn.relu,
             ]
         )
+        self.actor_1 = nn.Dense(64, kernel_init=initializers.orthogonal(2))
+        self.actor_out = nn.Dense(self.action_space, kernel_init=initializers.orthogonal(0.01))
+        self.critic_1 = nn.Dense(64, kernel_init=initializers.orthogonal(2))
+        self.critic_out = nn.Dense(1, kernel_init=initializers.orthogonal(1.0))
         self.lstm = LSTM(32)
-        self.actor = nn.Dense(
-            self.action_space, kernel_init=initializers.orthogonal(jnp.sqrt(2))
-        )
-        self.critic = nn.Dense(1, kernel_init=initializers.orthogonal(1.0))
 
     def get_states(self, x, lstm_state, done):
         x = self.network(x / 255.0)
         return self.lstm(x, done, lstm_state)
+
+    def actor(self, x):
+        x = self.actor_1(x)
+        x = nn.relu(x)
+        x = self.actor_out(x)
+        return x
+
+    def critic(self, x):
+        x = self.critic_1(x)
+        x = nn.relu(x)
+        x = self.critic_out(x)
+        return x
 
     def get_value(self, x, lstm_state, done):
         hidden, _ = self.get_states(x, lstm_state, done)
@@ -186,7 +196,7 @@ class ClassicMetaController:
 
     @partial(jax.jit, static_argnums=(0,))
     def train_some_episodes(
-        self, rng, tick, model_params, opt_states, next_obs, env_state
+        self, rng, tick, model_params, opt_states, next_lstm_states, next_obs, env_state
     ):
         obs = jnp.zeros(
             (self.num_steps, self.static_params.num_players, self.num_envs)
@@ -210,15 +220,7 @@ class ClassicMetaController:
         )
         rng, _rng = jax.random.split(rng)
         next_done = jnp.zeros((self.static_params.num_players, self.num_envs))
-        next_lstm_states = (
-            jnp.zeros((self.static_params.num_players, self.num_envs, 32)),
-            jnp.zeros((self.static_params.num_players, self.num_envs, 32)),
-        )
-        initial_lstm_states = (
-            jnp.zeros((self.static_params.num_players, self.num_envs, 32)),
-            jnp.zeros((self.static_params.num_players, self.num_envs, 32)),
-        )
-
+        init_lstm_states = next_lstm_states
         if self.anneal_lr:
             # update learning rate
             opt_states[1].hyperparams["learning_rate"] = jnp.full(  # pyright: ignore
@@ -251,11 +253,14 @@ class ClassicMetaController:
                     next_lstm_state,
                     next_done[agent_idx],
                 )
-                action = jax.lax.select(
-                    ~agents_alive[agent_idx] | env_state.is_sleeping[:, agent_idx],
-                    jnp.full(self.num_envs, Action.NOOP.value),
-                    jax.random.categorical(_rng, logits),
-                )
+                # sets the action to NOOP if player is dead or sleeping
+                # I think this does more harm than good
+                # action = jax.lax.select(
+                #     ~agents_alive[agent_idx] | env_state.is_sleeping[:, agent_idx],
+                #     jnp.full(self.num_envs, Action.NOOP.value),
+                #     jax.random.categorical(_rng, logits),
+                # )
+                action = jax.random.categorical(_rng, logits)
                 return (
                     value.flatten(),  # pyright: ignore
                     action,
@@ -360,7 +365,8 @@ class ClassicMetaController:
         _, advantages = jax.lax.scan(
             compute_advantages,
             jnp.zeros_like(next_done),
-            jnp.arange(self.num_steps - 1, -1, -1),
+            jnp.arange(self.num_steps),
+            reverse=True,
         )
         returns = advantages + values
 
@@ -463,7 +469,7 @@ class ClassicMetaController:
                     mb_returns = b_returns[:, mbenvinds]
                     mb_values = b_values[:, mbenvinds]
                     init_lstm_state = jax.tree.map(
-                        lambda state: state[agent_idx, mbenvinds], initial_lstm_states
+                        lambda state: state[agent_idx, mbenvinds], init_lstm_states
                     )
 
                     (loss, (pg_loss, approx_kl)), grads = grad_fn(
@@ -507,6 +513,7 @@ class ClassicMetaController:
         return (
             model_params,
             opt_states,
+            next_lstm_states,
             next_obs,
             env_state,
             agent_loss,
@@ -514,27 +521,35 @@ class ClassicMetaController:
             last_approx_kl,
         )
 
-    def train(self):
-        dummy_obs = jnp.ones(
-            (self.num_steps, self.num_envs) + self.observation_space.shape
-        )
-        dummy_lstm_state = (
-            jnp.ones((self.num_envs, 32)),
-            jnp.ones((self.num_envs, 32)),
-        )
-        dummy_done = jnp.ones((self.num_steps, self.num_envs))
-        rng, _rng = jax.random.split(self.rng)
-        model_params = jax.vmap(self.agent.init, in_axes=(0, None, None, None))(
-            jax.random.split(_rng, self.static_params.num_players),
-            dummy_obs,
-            dummy_lstm_state,
-            dummy_done,
-        )
+    def train(self, model_params=None):
+        if model_params is None:
+            dummy_obs = jnp.ones(
+                (self.num_steps, self.num_envs) + self.observation_space.shape
+            )
+            dummy_lstm_state = (
+                jnp.ones((self.num_envs, 32)),
+                jnp.ones((self.num_envs, 32)),
+            )
+            dummy_done = jnp.ones((self.num_steps, self.num_envs))
+            rng, _rng = jax.random.split(self.rng)
+            model_params = jax.vmap(self.agent.init, in_axes=(0, None, None, None))(
+                jax.random.split(_rng, self.static_params.num_players),
+                dummy_obs,
+                dummy_lstm_state,
+                dummy_done,
+            )
+        else:
+            rng = self.rng
         opt_states = jax.vmap(self.optimizer.init)(model_params)
 
         # initialize environment
+        rng, _rng = jax.random.split(rng)
         next_obs, env_state = self.reset_fn(
             jax.random.split(_rng, self.num_envs), self.env_params
+        )
+        next_lstm_states = (
+            jnp.zeros((self.static_params.num_players, self.num_envs, 32)),
+            jnp.zeros((self.static_params.num_players, self.num_envs, 32)),
         )
         for iteration in range(self.num_iterations):
             print("Iteration", iteration)
@@ -542,13 +557,20 @@ class ClassicMetaController:
             (
                 model_params,
                 opt_states,
+                next_lstm_states,
                 next_obs,
                 env_state,
                 agent_loss,
                 rewards,
                 last_approx_kl,
             ) = self.train_some_episodes(
-                _rng, iteration, model_params, opt_states, next_obs, env_state
+                _rng,
+                iteration,
+                model_params,
+                opt_states,
+                next_lstm_states,
+                next_obs,
+                env_state,
             )
             for agent in range(self.static_params.num_players):
                 print("Agent", agent, "loss:", agent_loss[agent])
@@ -562,6 +584,7 @@ class ClassicMetaController:
         next_done = jnp.zeros((self.static_params.num_players, 1), dtype=bool)
         states = [env_state]
         actions = []
+        logits = []
         rewards = []
         next_lstm_states = (
             jnp.zeros((self.static_params.num_players, 1, 32)),
@@ -573,12 +596,12 @@ class ClassicMetaController:
                 model_param, next_obs, next_lstm_state, next_done
             )
             action = jax.random.categorical(rng, logits).squeeze()
-            return action, next_lstm_state
+            return action, logits, next_lstm_state
 
         eval_fn = jax.jit(jax.vmap(eval_agent))
         while not jnp.all(next_done):
             rng, _rng = jax.random.split(rng)
-            agent_actions, next_lstm_states = eval_fn(
+            agent_actions, agent_logits, next_lstm_states = eval_fn(
                 model_params,
                 next_lstm_states,
                 next_obs,
@@ -590,8 +613,9 @@ class ClassicMetaController:
             )
             states.append(env_state)
             actions.append(agent_actions)
+            logits.append(agent_logits)
             rewards.append(reward)
-        return states, actions, rewards
+        return states, actions, logits, rewards
 
 
 def replay_episode(
@@ -640,7 +664,7 @@ if __name__ == "__main__":
     metacontroller = ClassicMetaController(
         static_parameters=StaticEnvParams(num_players=4),
         num_envs=128,
-        num_minibatches=8,
+        num_minibatches=2,
         num_steps=200,
         num_iterations=25,
         update_epochs=5,
@@ -649,7 +673,7 @@ if __name__ == "__main__":
         max_grad_norm=1.0,
     )
     params, opt_states = metacontroller.train()
-    states, actions, rewards = metacontroller.run_one_episode(params)
+    states, actions, logits, rewards = metacontroller.run_one_episode(params)
     replay_episode(states, actions, 4, 0)
     # n_steps = 10
     # n_envs = 8

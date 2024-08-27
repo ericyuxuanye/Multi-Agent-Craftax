@@ -15,7 +15,7 @@ from jax import lax
 
 
 def get_map_obs_shape():
-    num_mobs = 4
+    num_mobs = 5
     num_blocks = len(BlockType)
 
     return OBS_DIM[0], OBS_DIM[1], num_blocks + num_mobs

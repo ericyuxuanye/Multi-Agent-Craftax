@@ -23,7 +23,7 @@ def render_craftax_symbolic(state, player=0):
     map_view_one_hot = jax.nn.one_hot(map_view, num_classes=len(BlockType))
 
     # Mobs
-    mob_map = jnp.zeros((*OBS_DIM, 4), dtype=jnp.uint8)  # 4 types of mobs
+    mob_map = jnp.zeros((*OBS_DIM, 5), dtype=jnp.uint8)  # 4 types of mobs
 
     def _add_mob_to_map(carry, mob_index):
         mob_map, mobs, mob_type_index = carry
@@ -65,10 +65,10 @@ def render_craftax_symbolic(state, player=0):
     # Add other player positions to mob map
     players_as_mob = Mobs(
         position=state.player_position,
-        health=state.player_health,
+        health=state.player_health,  # ignored
         # No need to show current player as they will be in the center anyways
         mask=players_alive.at[player].set(False),
-        attack_cooldown=jnp.zeros(state.player_health.shape),
+        attack_cooldown=jnp.zeros_like(state.player_health),  # ignored
     )
     (mob_map, _, _), _ = jax.lax.scan(
         _add_mob_to_map,

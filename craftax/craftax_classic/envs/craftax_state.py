@@ -127,7 +127,7 @@ class EnvParams:
 
     mob_despawn_distance: int = 14
 
-    spawn_cow_chance: float = 0.1
+    spawn_cow_chance: float = 0.3
     spawn_zombie_base_chance: float = 0.02
     spawn_zombie_night_chance: float = 0.1
     spawn_skeleton_chance: float = 0.05
@@ -150,7 +150,7 @@ class StaticEnvParams:
 
     # Mobs
     max_zombies: int = 3
-    max_cows: int = 3
+    max_cows: int = 10
     max_growing_plants: int = 10
     max_skeletons: int = 2
     max_arrows: int = 3

@@ -6,16 +6,19 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from craftax.craftax_classic.constants import Action
-from craftax.craftax_classic.envs.craftax_symbolic_env import \
-    CraftaxClassicSymbolicEnv
-from craftax.craftax_classic.game_logic import are_players_alive
-from craftax.craftax_classic.renderer import render_craftax_pixels
 from numpy.typing import NDArray
 from torch import Tensor
 from torch.distributions.categorical import Categorical
 
-from envs.craftax_state import EnvParams, EnvState, StaticEnvParams
+from craftax.craftax_classic.constants import Action
+from craftax.craftax_classic.envs.craftax_state import (
+    EnvParams,
+    EnvState,
+    StaticEnvParams,
+)
+from craftax.craftax_classic.envs.craftax_symbolic_env import CraftaxClassicSymbolicEnv
+from craftax.craftax_classic.game_logic import are_players_alive
+from craftax.craftax_classic.renderer import render_craftax_pixels
 
 ### Copied from CleanRL
 
@@ -143,8 +146,12 @@ class ClassicMetaController:
         self.num_envs = num_envs
         self.env = CraftaxClassicSymbolicEnv(self.static_params)
         self.env_params = env_params
-        self.step_fn = jax.jit(jax.vmap(self.env.step, in_axes=(0, 0, 1, None), out_axes=(1, 0, 1, 1, 0)))
-        self.reset_fn = jax.jit(jax.vmap(self.env.reset, in_axes=(0, None), out_axes=(1, 0)))
+        self.step_fn = jax.jit(
+            jax.vmap(self.env.step, in_axes=(0, 0, 1, None), out_axes=(1, 0, 1, 1, 0))
+        )
+        self.reset_fn = jax.jit(
+            jax.vmap(self.env.reset, in_axes=(0, None), out_axes=(1, 0))
+        )
         self.player_alive_check = jax.jit(jax.vmap(are_players_alive, out_axes=1))
         self.num_steps = num_steps
         self.device = torch.device(device)
@@ -211,9 +218,13 @@ class ClassicMetaController:
         Run some episodes, and perform backpropagation on the agents
         """
         self.rng, _rng = jax.random.split(self.rng)
-        next_obs, env_state = self.reset_fn(jax.random.split(_rng, self.num_envs), self.env_params)
+        next_obs, env_state = self.reset_fn(
+            jax.random.split(_rng, self.num_envs), self.env_params
+        )
         next_obs = torch.from_numpy(np.asarray(next_obs)).to(self.device)
-        next_done = torch.zeros(self.static_params.num_players, self.num_envs).to(self.device)
+        next_done = torch.zeros(self.static_params.num_players, self.num_envs).to(
+            self.device
+        )
         next_lstm_states = [
             (
                 torch.zeros(
@@ -245,13 +256,18 @@ class ClassicMetaController:
             with torch.no_grad():
                 agents_alive = self.player_alive_check(env_state)
                 for agent_idx, agent in enumerate(self.agents):
-                    probs, value, next_lstm_state = (
-                        agent.get_action_and_value(
-                            next_obs[agent_idx], next_lstm_states[agent_idx], next_done[agent_idx]
-                        )
+                    probs, value, next_lstm_state = agent.get_action_and_value(
+                        next_obs[agent_idx],
+                        next_lstm_states[agent_idx],
+                        next_done[agent_idx],
                     )
                     action = probs.sample()
-                    action[np.asarray(~agents_alive[agent_idx] | env_state.is_sleeping[:, agent_idx])] = Action.NOOP.value
+                    action[
+                        np.asarray(
+                            ~agents_alive[agent_idx]
+                            | env_state.is_sleeping[:, agent_idx]
+                        )
+                    ] = Action.NOOP.value
                     logprob = probs.log_prob(action)
                     self.values[step, agent_idx] = value.flatten()
                     self.actions[step, agent_idx] = action
@@ -259,25 +275,32 @@ class ClassicMetaController:
                     next_lstm_states[agent_idx] = next_lstm_state
             self.rng, _rng = jax.random.split(self.rng)
             next_obs, env_state, reward, next_done, _info = self.step_fn(
-                jax.random.split(_rng, self.num_envs), env_state, self.actions[step].int().cpu().numpy(), self.env_params
+                jax.random.split(_rng, self.num_envs),
+                env_state,
+                self.actions[step].int().cpu().numpy(),
+                self.env_params,
             )
-            self.rewards[step] = (
-                torch.from_numpy(np.asarray(reward)).to(self.device)
-            )
+            self.rewards[step] = torch.from_numpy(np.asarray(reward)).to(self.device)
             next_obs, next_done = (
                 torch.from_numpy(np.asarray(next_obs)).to(self.device),
-                torch.from_numpy(np.asarray(next_done)).to(self.device, dtype=torch.float32),
+                torch.from_numpy(np.asarray(next_done)).to(
+                    self.device, dtype=torch.float32
+                ),
             )
         # bootstrap value if not done
         with torch.no_grad():
-            next_values = torch.cat(
-                [
-                    agent.get_value(obs, next_lstm_state, done).flatten()
-                    for agent, obs, next_lstm_state, done in zip(
-                        self.agents, next_obs, next_lstm_states, next_done
-                    )
-                ]
-            ).reshape(self.static_params.num_players, self.num_envs).to(self.device)
+            next_values = (
+                torch.cat(
+                    [
+                        agent.get_value(obs, next_lstm_state, done).flatten()
+                        for agent, obs, next_lstm_state, done in zip(
+                            self.agents, next_obs, next_lstm_states, next_done
+                        )
+                    ]
+                )
+                .reshape(self.static_params.num_players, self.num_envs)
+                .to(self.device)
+            )
             advantages = torch.zeros_like(self.rewards).to(self.device)
             lastgaelam = 0
             for t in reversed(range(self.num_steps)):
@@ -305,7 +328,9 @@ class ClassicMetaController:
         for agent_idx, agent in enumerate(self.agents):
             b_obs = self.obs[:, agent_idx].reshape((-1,) + self.observation_space.shape)
             b_logprobs = self.logprobs[:, agent_idx].reshape(-1)
-            b_actions = self.actions[:, agent_idx].reshape((-1,) + self.action_space.shape)
+            b_actions = self.actions[:, agent_idx].reshape(
+                (-1,) + self.action_space.shape
+            )
             b_dones = self.dones[:, agent_idx].reshape(-1)
             b_advantages = advantages[:, agent_idx].reshape(-1)
             b_returns = returns[:, agent_idx].reshape(-1)
@@ -320,7 +345,9 @@ class ClassicMetaController:
                 for start in range(0, self.num_envs, envsperbatch):
                     end = start + envsperbatch
                     mbenvinds = envinds[start:end]
-                    mb_inds = flatinds[:, mbenvinds].ravel()  # be really careful about the index
+                    mb_inds = flatinds[
+                        :, mbenvinds
+                    ].ravel()  # be really careful about the index
 
                     probs, newvalue, _ = agent.get_action_and_value(
                         b_obs[mb_inds],
@@ -396,7 +423,12 @@ class ClassicMetaController:
             print("Agent", agent_idx, "explained variance:", explained_var)
             print("Agent", agent_idx, "KL divergence:", approx_kl.item())  # pyright: ignore
             print("Agent", agent_idx, "old KL divergence:", old_approx_kl.item())  # pyright: ignore
-            print("Agent", agent_idx, "average reward:", self.rewards[:, agent_idx].mean().item())  # pyright: ignore
+            print(
+                "Agent",
+                agent_idx,
+                "average reward:",
+                self.rewards[:, agent_idx].mean().item(),
+            )  # pyright: ignore
 
     def train(self):
         for iteration in range(self.num_iterations):
@@ -412,7 +444,9 @@ class ClassicMetaController:
         """
         self.rng, _rng = jax.random.split(self.rng)
         next_obs, env_state = self.env.reset(_rng, self.env_params)
-        next_done: NDArray[np.bool] = np.zeros((self.static_params.num_players, 1), dtype=np.bool)
+        next_done: NDArray[np.bool] = np.zeros(
+            (self.static_params.num_players, 1), dtype=np.bool
+        )
         states: list[EnvState] = [env_state]
         actions: list[NDArray[np.int32]] = []
         rewards: list[NDArray[np.float32]] = []
@@ -431,12 +465,12 @@ class ClassicMetaController:
             agent_actions = np.zeros(self.static_params.num_players, dtype=int)
             with torch.no_grad():
                 for i, agent in enumerate(self.agents):
-                    probs, value, next_lstm_state = (
-                        agent.get_action_and_value(
-                            torch.from_numpy(np.asarray(next_obs[i])).to(self.device),
-                            next_lstm_states[i],
-                            torch.from_numpy(np.asarray(next_done[i], dtype=np.float32)).to(self.device),
-                        )
+                    probs, value, next_lstm_state = agent.get_action_and_value(
+                        torch.from_numpy(np.asarray(next_obs[i])).to(self.device),
+                        next_lstm_states[i],
+                        torch.from_numpy(np.asarray(next_done[i], dtype=np.float32)).to(
+                            self.device
+                        ),
                     )
                     action = probs.sample()
                     agent_actions[i] = action
@@ -451,7 +485,12 @@ class ClassicMetaController:
         return states, actions, rewards
 
 
-def replay_episode(states: list[EnvState], actions: list[NDArray[np.int32]], num_players: int, player: int = 0):
+def replay_episode(
+    states: list[EnvState],
+    actions: list[NDArray[np.int32]],
+    num_players: int,
+    player: int = 0,
+):
     import pygame
 
     pygame.init()
@@ -499,7 +538,7 @@ if __name__ == "__main__":
         num_steps=100,
         num_iterations=10,
         update_epochs=5,
-        device="cpu"
+        device="cpu",
     )
     metacontroller.train()
     states, actions, rewards = metacontroller.run_one_episode()
