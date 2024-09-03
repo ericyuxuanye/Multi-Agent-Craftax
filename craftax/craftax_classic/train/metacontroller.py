@@ -84,7 +84,7 @@ class CraftaxAgent(nn.Module):
         done: Tensor,
     ) -> tuple[Categorical, Tensor, tuple[Tensor, Tensor]]:
         """
-        Returns the action, log probs, entropy, value, and lstm_state
+        Returns the categorical value, the critic value, and the lstm state
         """
         hidden, lstm_state = self.get_states(x, lstm_state, done)
         logits = self.actor(hidden)
@@ -437,7 +437,7 @@ class ClassicMetaController:
 
     def run_one_episode(
         self,
-    ) -> tuple[list[EnvState], list[NDArray[np.int32]], list[NDArray[np.float32]]]:
+    ) -> tuple[list[EnvState], list[NDArray[np.int32]], list[NDArray[np.float32]], list[NDArray[np.float32]]]:
         """
         Runs a single episode, and returns a tuple containing
         the list of states, the list of actions, and the list of rewards
@@ -447,8 +447,9 @@ class ClassicMetaController:
         next_done: NDArray[np.bool] = np.zeros(
             (self.static_params.num_players, 1), dtype=np.bool
         )
-        states: list[EnvState] = [env_state]
+        states: list[EnvState] = []
         actions: list[NDArray[np.int32]] = []
+        logits: list[NDArray[np.float32]] = []
         rewards: list[NDArray[np.float32]] = []
         next_lstm_states = [
             (
@@ -462,7 +463,9 @@ class ClassicMetaController:
             for agent in self.agents
         ]
         while not jnp.all(next_done):
+            states.append(env_state)
             agent_actions = np.zeros(self.static_params.num_players, dtype=int)
+            agent_logits = np.zeros((self.static_params.num_players, len(Action)), dtype=np.float32)
             with torch.no_grad():
                 for i, agent in enumerate(self.agents):
                     probs, value, next_lstm_state = agent.get_action_and_value(
@@ -474,60 +477,16 @@ class ClassicMetaController:
                     )
                     action = probs.sample()
                     agent_actions[i] = action
+                    agent_logits[i] = probs.logits
                     next_lstm_states[i] = next_lstm_state
             self.rng, _rng = jax.random.split(self.rng)
             next_obs, env_state, reward, next_done, _info = self.env.step(
                 _rng, env_state, agent_actions, self.env_params
             )
-            states.append(env_state)
             actions.append(agent_actions)
+            logits.append(agent_logits)
             rewards.append(reward)
-        return states, actions, rewards
-
-
-def replay_episode(
-    states: list[EnvState],
-    actions: list[NDArray[np.int32]],
-    num_players: int,
-    player: int = 0,
-):
-    import pygame
-
-    pygame.init()
-    pygame.key.set_repeat(250, 75)
-    screen_surface = pygame.display.set_mode((576, 576))
-    render = render_craftax_pixels
-    state_idx = 0
-    done = False
-    clock = pygame.time.Clock()
-    while not done:
-        # Render
-        screen_surface.fill((0, 0, 0))
-
-        pixels = render(
-            states[state_idx],
-            block_pixel_size=64,
-            num_players=num_players,
-            player=player,
-        )
-
-        surface = pygame.surfarray.make_surface(np.array(pixels).transpose((1, 0, 2)))
-        screen_surface.blit(surface, (0, 0))
-
-        pygame.display.flip()
-
-        pygame_events = pygame.event.get()
-        for event in pygame_events:
-            if event.type == pygame.QUIT:
-                done = True
-            if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
-                if state_idx < len(actions):
-                    print([Action(x).name for x in actions[state_idx]])
-                state_idx += 1
-                if state_idx == len(states):
-                    done = True
-
-        clock.tick(10)
+        return states, actions, rewards, logits
 
 
 if __name__ == "__main__":
@@ -541,5 +500,5 @@ if __name__ == "__main__":
         device="cpu",
     )
     metacontroller.train()
-    states, actions, rewards = metacontroller.run_one_episode()
-    replay_episode(states, actions, 4)
+    # states, actions, rewards, logits = metacontroller.run_one_episode()
+    # replay_episode(states, actions, 4)  # pyright: ignore

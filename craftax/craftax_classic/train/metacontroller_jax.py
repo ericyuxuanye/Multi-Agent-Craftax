@@ -4,16 +4,13 @@ from random import randrange
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
-import numpy as np
 import optax
 from flax.linen import initializers
 
-from craftax.craftax.craftax_state import EnvState
-from craftax.craftax_classic.constants import Action
 from craftax.craftax_classic.envs.craftax_state import EnvParams, StaticEnvParams
 from craftax.craftax_classic.envs.craftax_symbolic_env import CraftaxClassicSymbolicEnv
 from craftax.craftax_classic.game_logic import are_players_alive
-from craftax.craftax_classic.renderer import render_craftax_pixels
+from craftax.craftax_classic.train.logger import TrainLogger
 
 
 class LSTM(nn.Module):
@@ -77,13 +74,15 @@ class CraftaxAgent(nn.Module):
             ]
         )
         self.actor_1 = nn.Dense(64, kernel_init=initializers.orthogonal(2))
-        self.actor_out = nn.Dense(self.action_space, kernel_init=initializers.orthogonal(0.01))
+        self.actor_out = nn.Dense(
+            self.action_space, kernel_init=initializers.orthogonal(0.01)
+        )
         self.critic_1 = nn.Dense(64, kernel_init=initializers.orthogonal(2))
         self.critic_out = nn.Dense(1, kernel_init=initializers.orthogonal(1.0))
         self.lstm = LSTM(32)
 
     def get_states(self, x, lstm_state, done):
-        x = self.network(x / 255.0)
+        x = self.network(x)
         return self.lstm(x, done, lstm_state)
 
     def actor(self, x):
@@ -198,26 +197,6 @@ class ClassicMetaController:
     def train_some_episodes(
         self, rng, tick, model_params, opt_states, next_lstm_states, next_obs, env_state
     ):
-        obs = jnp.zeros(
-            (self.num_steps, self.static_params.num_players, self.num_envs)
-            + self.observation_space.shape
-        )
-        actions = jnp.zeros(
-            (self.num_steps, self.static_params.num_players, self.num_envs)
-            + self.action_space.shape
-        )
-        logprobs = jnp.zeros(
-            (self.num_steps, self.static_params.num_players, self.num_envs)
-        )
-        rewards = jnp.zeros(
-            (self.num_steps, self.static_params.num_players, self.num_envs)
-        )
-        dones = jnp.zeros(
-            (self.num_steps, self.static_params.num_players, self.num_envs)
-        )
-        values = jnp.zeros(
-            (self.num_steps, self.static_params.num_players, self.num_envs)
-        )
         rng, _rng = jax.random.split(rng)
         next_done = jnp.zeros((self.static_params.num_players, self.num_envs))
         init_lstm_states = next_lstm_states
@@ -231,19 +210,13 @@ class ClassicMetaController:
             (
                 next_obs,
                 next_done,
-                obs,
-                dones,
                 env_state,
                 next_lstm_states,
-                values,
-                actions,
-                rewards,
-                logprobs,
                 rng,
             ) = carry
-            obs = obs.at[step].set(next_obs)
-            dones = dones.at[step].set(next_done)
-            agents_alive = self.player_alive_check(env_state)
+            init_obs = next_obs
+            init_done = next_done
+            # agents_alive = self.player_alive_check(env_state)
 
             def eval_agent(rng, agent_idx, model_param, next_lstm_state):
                 rng, _rng = jax.random.split(rng)
@@ -275,61 +248,39 @@ class ClassicMetaController:
                 model_params,
                 next_lstm_states,
             )
-            values = values.at[step].set(value)
-            actions = actions.at[step].set(action)
-            logprobs = logprobs.at[step].set(logprob)
             rng, _rng = jax.random.split(rng)
             next_obs, env_state, reward, next_done, _info = self.step_fn(
                 jax.random.split(_rng, self.num_envs),
                 env_state,
-                actions[step].astype(int),
+                action.astype(int),
                 self.env_params,
             )
             next_done = next_done.astype(float)
-            rewards = rewards.at[step].set(reward)
             return (
                 next_obs,
                 next_done,
-                obs,
-                dones,
                 env_state,
                 next_lstm_states,
-                values,
-                actions,
-                rewards,
-                logprobs,
                 rng,
-            ), None
+            ), (init_obs, init_done, value, action, logprob, reward)
 
         # ugly code
         (
             (
                 next_obs,
                 next_done,
-                obs,
-                dones,
                 env_state,
                 next_lstm_states,
-                values,
-                actions,
-                rewards,
-                logprobs,
                 rng,
             ),
-            _,
+            (obs, dones, values, actions, logprobs, rewards),
         ) = jax.lax.scan(
             rollout_step,
             (
                 next_obs,
                 next_done,
-                obs,
-                dones,
                 env_state,
                 next_lstm_states,
-                values,
-                actions,
-                rewards,
-                logprobs,
                 rng,
             ),
             jnp.arange(self.num_steps),
@@ -349,23 +300,19 @@ class ClassicMetaController:
             model_params, next_obs, next_lstm_states, next_done
         ).reshape(self.static_params.num_players, self.num_envs)
 
-        def compute_advantages(lastgaelam, t):
-            nextnonterminal = jax.lax.select(
-                t == self.num_steps - 1, 1 - next_done, 1 - dones[t + 1]
-            )
-            nextvalues = jax.lax.select(
-                t == self.num_steps - 1, next_values, values[t + 1]
-            )
-            delta = rewards[t] + self.gamma * nextvalues * nextnonterminal - values[t]
+        def compute_advantages(carry, transition):
+            lastgaelam, next_value, next_done = carry
+            done, value, reward = transition
+            delta = reward + self.gamma * next_value * (1 - next_done) - value
             lastgaelam = (
-                delta + self.gamma * self.gae_lambda * nextnonterminal * lastgaelam
+                delta + self.gamma * self.gae_lambda * (1 - next_done) * lastgaelam
             )
-            return lastgaelam, lastgaelam
+            return (lastgaelam, value, done), lastgaelam
 
         _, advantages = jax.lax.scan(
             compute_advantages,
-            jnp.zeros_like(next_done),
-            jnp.arange(self.num_steps),
+            (jnp.zeros_like(next_done), next_values, next_done),
+            (dones, values, rewards),
             reverse=True,
         )
         returns = advantages + values
@@ -542,6 +489,9 @@ class ClassicMetaController:
             rng = self.rng
         opt_states = jax.vmap(self.optimizer.init)(model_params)
 
+        # Logger
+        log = TrainLogger(self.env_params, self.static_params)
+
         # initialize environment
         rng, _rng = jax.random.split(rng)
         next_obs, env_state = self.reset_fn(
@@ -572,17 +522,22 @@ class ClassicMetaController:
                 next_obs,
                 env_state,
             )
+            log.insert_stat(iteration, "loss", agent_loss)
+            log.insert_stat(iteration, "reward", rewards)
+            log.insert_stat(iteration, "kl", last_approx_kl)
+            if iteration % 20 == 0:
+                log.insert_model_snapshot(iteration, model_params)
             for agent in range(self.static_params.num_players):
                 print("Agent", agent, "loss:", agent_loss[agent])
                 print("Agent", agent, "reward:", rewards[agent])
                 print("Agent", agent, "approx KL:", last_approx_kl[agent])
-        return model_params, opt_states
+        return model_params, opt_states, log
 
     def run_one_episode(self, model_params):
         rng, _rng = jax.random.split(self.rng)
         next_obs, env_state = self.env.reset(_rng, self.env_params)
         next_done = jnp.zeros((self.static_params.num_players, 1), dtype=bool)
-        states = [env_state]
+        states = []
         actions = []
         logits = []
         rewards = []
@@ -601,6 +556,7 @@ class ClassicMetaController:
         eval_fn = jax.jit(jax.vmap(eval_agent))
         while not jnp.all(next_done):
             rng, _rng = jax.random.split(rng)
+            states.append(env_state)
             agent_actions, agent_logits, next_lstm_states = eval_fn(
                 model_params,
                 next_lstm_states,
@@ -611,54 +567,10 @@ class ClassicMetaController:
             next_obs, env_state, reward, next_done, _info = self.env.step(
                 _rng, env_state, agent_actions, self.env_params
             )
-            states.append(env_state)
             actions.append(agent_actions)
             logits.append(agent_logits)
             rewards.append(reward)
         return states, actions, logits, rewards
-
-
-def replay_episode(
-    states: list[EnvState], actions: list[jax.Array], num_players: int, player: int = 0
-):
-    import pygame
-
-    pygame.init()
-    pygame.key.set_repeat(250, 75)
-    screen_surface = pygame.display.set_mode((576, 576))
-    state_idx = 0
-    done = False
-    clock = pygame.time.Clock()
-    while not done:
-        # Render
-        screen_surface.fill((0, 0, 0))
-
-        pixels = render_craftax_pixels(
-            states[state_idx],
-            block_pixel_size=64,
-            num_players=num_players,
-            player=player,
-        )
-
-        surface = pygame.surfarray.make_surface(np.array(pixels).transpose((1, 0, 2)))
-        screen_surface.blit(surface, (0, 0))
-
-        pygame.display.flip()
-
-        pygame_events = pygame.event.get()
-        for event in pygame_events:
-            if event.type == pygame.QUIT:
-                done = True
-            if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
-                if state_idx < len(actions):
-                    print([Action(x).name for x in actions[state_idx]])
-                state_idx += 1
-                if state_idx == len(states):
-                    done = True
-
-        clock.tick(10)
-    pygame.quit()
-
 
 if __name__ == "__main__":
     metacontroller = ClassicMetaController(
@@ -672,9 +584,9 @@ if __name__ == "__main__":
         learning_rate=2.5e-4,
         max_grad_norm=1.0,
     )
-    params, opt_states = metacontroller.train()
-    states, actions, logits, rewards = metacontroller.run_one_episode(params)
-    replay_episode(states, actions, 4, 0)
+    params, opt_states, log = metacontroller.train()
+    # states, actions, logits, rewards = metacontroller.run_one_episode(params)
+    # replay_episode(states, actions, 4, 0)
     # n_steps = 10
     # n_envs = 8
     # dummy_obs = jnp.ones((n_steps, n_envs, 1346))

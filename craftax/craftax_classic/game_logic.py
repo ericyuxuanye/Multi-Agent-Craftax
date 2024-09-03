@@ -966,6 +966,7 @@ def update_mobs(rng, state, params, static_params):
     """Move the zombies, cows, skeletons, and arrows"""
     # Move zombies
 
+    players_alive = are_players_alive(state)
     def _move_zombie(rng_and_state, zombie_index):
         rng, state = rng_and_state
         zombies = state.zombies
@@ -986,7 +987,12 @@ def update_mobs(rng, state, params, static_params):
             state.player_position - zombies.position[zombie_index]
         )
         player_distance = jnp.sum(player_move_direction_abs, axis=1)
-        closest_player_idx = jnp.argmax(player_distance)
+        player_distance = jax.lax.select(
+            players_alive,
+            player_distance,
+            jnp.full_like(player_distance, 999)
+        )
+        closest_player_idx = jnp.argmin(player_distance)
         # Weird way (imo) to basically state that we should follow the longer direction,
         # Randomly choose one of them if there is a tie.
         player_move_direction_index_p = (
@@ -1138,9 +1144,14 @@ def update_mobs(rng, state, params, static_params):
             valid_move, proposed_position, cows.position[cow_index]
         )
 
-        closest_player_idx = jnp.argmin(
-            jnp.abs(cows.position[cow_index] - state.player_position).sum(axis=1)
+        player_distance = jnp.abs(cows.position[cow_index] - state.player_position).sum(axis=1)
+        player_distance = jax.lax.select(
+            players_alive,
+            player_distance,
+            jnp.full_like(player_distance, 999)
         )
+
+        closest_player_idx = jnp.argmin(player_distance)
         should_not_despawn = (
             jnp.abs(cows.position[cow_index] - state.player_position[closest_player_idx]).sum()
             < params.mob_despawn_distance
@@ -1202,7 +1213,12 @@ def update_mobs(rng, state, params, static_params):
             state.player_position - skeletons.position[skeleton_index]
         )
         player_distance = jnp.sum(player_move_direction_abs, axis=1)
-        closest_player_idx = jnp.argmax(player_distance)
+        player_distance = jax.lax.select(
+            players_alive,
+            player_distance,
+            jnp.full_like(player_distance, 999)
+        )
+        closest_player_idx = jnp.argmin(player_distance)
         player_move_direction_index_p = (
             player_move_direction_abs[closest_player_idx] == player_move_direction_abs.max()
         ) / player_move_direction_abs[closest_player_idx].sum()
@@ -1544,7 +1560,7 @@ def update_player_intrinsics(state, action):
         dtype=bool,
     )
 
-    all_necessities = necessities.all()
+    all_necessities = necessities.all(axis=0)
     recover_all = jax.lax.select(
         state.is_sleeping,
         jnp.full((n,), 2.0),

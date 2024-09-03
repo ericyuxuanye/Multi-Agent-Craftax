@@ -1,5 +1,5 @@
 import functools
-from typing import Any, Optional, Tuple, Union, override
+from typing import Any, Optional, Tuple, Union
 
 import chex
 from craftax.craftax_classic.constants import *
@@ -70,6 +70,14 @@ class CraftaxClassicSymbolicEnvNoAutoReset(EnvironmentNoAutoReset):
             info,
         )
 
+    def discount(self, state, params) -> jax.Array:
+        """Return a discount of zero if the episode has terminated."""
+        return jax.lax.select(
+            self.is_terminal(state, params),
+            jnp.zeros(len(state.player_position), dtype=float),
+            jnp.ones(len(state.player_position), dtype=float)
+        )
+
     def reset_env(
         self, rng: chex.PRNGKey, params: EnvParams
     ) -> Tuple[chex.Array, EnvState]:
@@ -78,8 +86,11 @@ class CraftaxClassicSymbolicEnvNoAutoReset(EnvironmentNoAutoReset):
         return self.get_obs(state), state
 
     def get_obs(self, state: EnvState) -> chex.Array:
-        pixels = render_craftax_symbolic(state)
-        return pixels
+        def _render_player(player):
+            return render_craftax_symbolic(state, player)
+        all_pixels = jax.vmap(_render_player)(jnp.arange(self.static_env_params.num_players))
+        # pixels = render_craftax_symbolic(state)
+        return all_pixels
 
     def is_terminal(self, state: EnvState, params: EnvParams) -> bool:
         return is_game_over(state, params)
@@ -142,7 +153,6 @@ class CraftaxClassicSymbolicEnv(environment.Environment):
             info,
         )
 
-    @override
     def discount(self, state, params) -> jax.Array:
         """Return a discount of zero if the episode has terminated."""
         return jax.lax.select(
@@ -158,7 +168,7 @@ class CraftaxClassicSymbolicEnv(environment.Environment):
         key: chex.PRNGKey,
         state: EnvState,
         action: Union[int, float, chex.Array],
-        params: Optional[EnvState] = None,
+        params: Optional[EnvParams] = None,
     ) -> Tuple[chex.Array, EnvState, jnp.ndarray, jnp.ndarray, dict[Any, Any]]:
         """Performs step transitions in the environment."""
         # Use default env parameters if no others specified
