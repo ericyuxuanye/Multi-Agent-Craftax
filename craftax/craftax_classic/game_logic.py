@@ -1344,7 +1344,7 @@ def update_mobs(rng, state, params, static_params):
         )
 
         should_not_despawn = (
-            jnp.abs(skeletons.position[skeleton_index] - state.player_position).sum()
+            jnp.abs(skeletons.position[skeleton_index] - state.player_position[closest_player_idx]).sum()
             < params.mob_despawn_distance
         )
 
