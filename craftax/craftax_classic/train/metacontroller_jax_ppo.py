@@ -13,24 +13,29 @@ from craftax.craftax_classic.envs.craftax_symbolic_env import CraftaxClassicSymb
 from craftax.craftax_classic.game_logic import are_players_alive
 from craftax.craftax_classic.train.logger import TrainLogger
 
+
 class CraftaxAgent(nn.Module):
     action_space: int
 
     def setup(self):
-        self.actor = nn.Sequential([
-            nn.Dense(64, kernel_init=initializers.orthogonal(np.sqrt(2))),
-            nn.relu,
-            nn.Dense(64, kernel_init=initializers.orthogonal(np.sqrt(2))),
-            nn.relu,
-            nn.Dense(self.action_space, kernel_init=initializers.orthogonal(0.01))
-        ])
-        self.critic = nn.Sequential([
-            nn.Dense(64, kernel_init=initializers.orthogonal(np.sqrt(2))),
-            nn.relu,
-            nn.Dense(64, kernel_init=initializers.orthogonal(np.sqrt(2))),
-            nn.relu,
-            nn.Dense(1, kernel_init=initializers.orthogonal(1.0))
-        ])
+        self.actor = nn.Sequential(
+            [
+                nn.Dense(64, kernel_init=initializers.orthogonal(np.sqrt(2))),
+                nn.relu,
+                nn.Dense(64, kernel_init=initializers.orthogonal(np.sqrt(2))),
+                nn.relu,
+                nn.Dense(self.action_space, kernel_init=initializers.orthogonal(0.01)),
+            ]
+        )
+        self.critic = nn.Sequential(
+            [
+                nn.Dense(64, kernel_init=initializers.orthogonal(np.sqrt(2))),
+                nn.relu,
+                nn.Dense(64, kernel_init=initializers.orthogonal(np.sqrt(2))),
+                nn.relu,
+                nn.Dense(1, kernel_init=initializers.orthogonal(1.0)),
+            ]
+        )
 
     def get_value(self, x):
         return self.critic(x)
@@ -218,9 +223,9 @@ class ClassicMetaController:
                 method=CraftaxAgent.get_value,
             ).flatten()  # pyright: ignore
 
-        next_values = jax.vmap(produce_value)(
-            model_params, next_obs
-        ).reshape(self.static_params.num_players, self.num_envs)
+        next_values = jax.vmap(produce_value)(model_params, next_obs).reshape(
+            self.static_params.num_players, self.num_envs
+        )
 
         def compute_advantages(carry, transition):
             lastgaelam, next_value, next_done = carry
@@ -297,7 +302,12 @@ class ClassicMetaController:
 
             entropy_loss = entropy.mean()
             loss = pg_loss - self.ent_coef * entropy_loss + v_loss * self.vf_coef
-            return loss, (pg_loss, jax.lax.stop_gradient(approx_kl))
+            return loss, (
+                pg_loss,
+                v_loss,
+                entropy_loss,
+                jax.lax.stop_gradient(approx_kl),
+            )
 
         grad_fn = jax.value_and_grad(ppo_loss, has_aux=True)
 
@@ -335,7 +345,7 @@ class ClassicMetaController:
                     mb_returns = b_returns[mb_inds]
                     mb_values = b_values[mb_inds]
 
-                    (loss, (pg_loss, approx_kl)), grads = grad_fn(
+                    (loss, (pg_loss, v_loss, entropy_loss, approx_kl)), grads = grad_fn(
                         model_param,
                         mb_obs,
                         mb_logprobs,
@@ -348,24 +358,63 @@ class ClassicMetaController:
                         grads, optimizer_state, model_param
                     )
                     model_param = optax.apply_updates(model_param, updates)
-                    return (model_param, optimizer_state), (loss, approx_kl)
+                    return (model_param, optimizer_state), (
+                        loss,
+                        pg_loss,
+                        v_loss,
+                        entropy_loss,
+                        approx_kl,
+                    )
 
-                (model_param, optimizer_state), (losses, approx_kl) = jax.lax.scan(
+                (
+                    (model_param, optimizer_state),
+                    (losses, pg_losses, v_losses, entropy_losses, approx_kl),
+                ) = jax.lax.scan(
                     do_minibatch,
                     (model_param, optimizer_state),
                     jnp.arange(0, self.num_envs, minibatch_size),
                 )
 
-                return (rng, model_param, optimizer_state), (losses, approx_kl)
+                return (rng, model_param, optimizer_state), (
+                    losses,
+                    pg_losses,
+                    v_losses,
+                    entropy_losses,
+                    approx_kl,
+                )
 
-            (_rng, model_param, opt_state), (losses, approx_kl) = jax.lax.scan(
-                do_epoch, (rng, model_param, opt_state), jnp.arange(self.update_epochs)
+            (
+                (_rng, model_param, opt_state),
+                (losses, pg_losses, v_losses, entropy_losses, approx_kl),
+            ) = jax.lax.scan(
+                do_epoch,
+                (rng, model_param, opt_state),
+                jnp.arange(self.update_epochs),
             )
             last_epoch_loss = losses[-1].mean()
+            last_pg_loss = pg_losses[-1].mean()
+            last_v_loss = v_losses[-1].mean()
+            last_entropy_loss = entropy_losses[-1].mean()
             last_approx_kl = approx_kl[-1].mean()
-            return model_param, opt_state, last_epoch_loss, last_approx_kl
+            return (
+                model_param,
+                opt_state,
+                last_epoch_loss,
+                last_pg_loss,
+                last_v_loss,
+                last_entropy_loss,
+                last_approx_kl,
+            )
 
-        model_params, opt_states, agent_loss, last_approx_kl = jax.vmap(process_agent)(
+        (
+            model_params,
+            opt_states,
+            agent_loss,
+            agent_pg_loss,
+            agent_v_loss,
+            agent_entropy_loss,
+            last_approx_kl,
+        ) = jax.vmap(process_agent)(
             jnp.arange(self.static_params.num_players),
             model_params,
             opt_states,
@@ -377,6 +426,9 @@ class ClassicMetaController:
             next_obs,
             env_state,
             agent_loss,
+            agent_pg_loss,
+            agent_v_loss,
+            agent_entropy_loss,
             rewards.mean(axis=(0, 2)),
             last_approx_kl,
         )
@@ -412,6 +464,9 @@ class ClassicMetaController:
                 next_obs,
                 env_state,
                 agent_loss,
+                agent_pg_loss,
+                agent_v_loss,
+                agent_entropy_loss,
                 rewards,
                 last_approx_kl,
             ) = self.train_some_episodes(
@@ -425,10 +480,16 @@ class ClassicMetaController:
             log.insert_stat(iteration, "loss", agent_loss)
             log.insert_stat(iteration, "reward", rewards)
             log.insert_stat(iteration, "kl", last_approx_kl)
+            log.insert_stat(iteration, "pg_loss", agent_pg_loss)
+            log.insert_stat(iteration, "v_loss", agent_v_loss)
+            log.insert_stat(iteration, "entropy_loss", agent_entropy_loss)
             if iteration % 20 == 0:
                 log.insert_model_snapshot(iteration, model_params)
             for agent in range(self.static_params.num_players):
                 print("Agent", agent, "loss:", agent_loss[agent])
+                print("Agent", agent, "PG loss:", agent_pg_loss[agent])
+                print("Agent", agent, "value loss:", agent_v_loss[agent])
+                print("Agent", agent, "entropy:", agent_entropy_loss[agent])
                 print("Agent", agent, "reward:", rewards[agent])
                 print("Agent", agent, "approx KL:", last_approx_kl[agent])
         return model_params, opt_states, log
@@ -465,6 +526,7 @@ class ClassicMetaController:
             logits.append(agent_logits)
             rewards.append(reward)
         return states, actions, logits, rewards
+
 
 if __name__ == "__main__":
     metacontroller = ClassicMetaController(

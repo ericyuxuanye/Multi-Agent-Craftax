@@ -540,6 +540,7 @@ def render_craftax_pixels(state, block_pixel_size, num_players, player=0):
     number_offset = block_pixel_size - number_size
 
     def _render_number(pixels, number, x, y):
+        number = jnp.maximum(number, 0)
         pixels = pixels.at[
             y * block_pixel_size + number_offset - 1 : (y + 1) * block_pixel_size - 1,
             x * block_pixel_size + number_offset - 1 : (x + 1) * block_pixel_size - 1,
