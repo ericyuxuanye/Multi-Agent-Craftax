@@ -1464,11 +1464,11 @@ def get_distance_map(positions, static_params):
     """
     dist_x = jnp.abs(jnp.arange(0, static_params.map_size[0]) - positions[:, 0].reshape(-1, 1))
     dist_x = jnp.expand_dims(dist_x, axis=2)
-    dist_x = jnp.tile(dist_x, (1, static_params.map_size[1]))
+    dist_x = jnp.tile(dist_x, (1, 1, static_params.map_size[1]))
 
     dist_y = jnp.abs(jnp.arange(0, static_params.map_size[1]) - positions[:, 1].reshape(-1, 1))
     dist_y = jnp.expand_dims(dist_y, axis=1)
-    dist_y = jnp.tile(dist_y, (static_params.map_size[0], 1))
+    dist_y = jnp.tile(dist_y, (1, static_params.map_size[0], 1))
 
     dist = dist_x + dist_y
     ans = jnp.min(dist, axis=0)

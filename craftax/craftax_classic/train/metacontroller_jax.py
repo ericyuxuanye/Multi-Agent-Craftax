@@ -392,7 +392,7 @@ class ClassicMetaController:
         # environment indices
         envinds = jnp.arange(self.num_envs)
 
-        def process_agent(agent_idx, model_param, opt_state):
+        def process_agent(agent_idx, model_param, opt_state, rng):
             b_obs = obs[:, agent_idx]
             b_logprobs = logprobs[:, agent_idx]
             b_actions = actions[:, agent_idx]
@@ -497,6 +497,7 @@ class ClassicMetaController:
             jnp.arange(self.static_params.num_players),
             model_params,
             opt_states,
+            jax.random.split(rng, self.static_params.num_players)
         )
 
         return (

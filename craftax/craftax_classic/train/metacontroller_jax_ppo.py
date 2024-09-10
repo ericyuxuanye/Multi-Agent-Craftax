@@ -318,7 +318,7 @@ class ClassicMetaController:
         b_inds = jnp.arange(batch_size)
         minibatch_size = batch_size // self.num_minibatches
 
-        def process_agent(agent_idx, model_param, opt_state):
+        def process_agent(agent_idx, model_param, opt_state, rng):
             b_obs = obs[:, agent_idx].reshape((-1,) + self.observation_space.shape)
             b_logprobs = logprobs[:, agent_idx].reshape(-1)
             b_actions = actions[:, agent_idx].reshape((-1,) + self.action_space.shape)
@@ -418,6 +418,7 @@ class ClassicMetaController:
             jnp.arange(self.static_params.num_players),
             model_params,
             opt_states,
+            jax.random.split(rng, self.static_params.num_players)
         )
 
         return (
