@@ -855,7 +855,9 @@ def render_others_data(state, player=0):
         jnp.zeros_like(inventories),
     )
     filtered_inventories = jnp.delete(filtered_inventories, player, axis=0)
-    filtered_inventories_flattened = filtered_inventories.reshape(state.player_position.shape[0] - 1, -1)
+    filtered_inventories_flattened = filtered_inventories.reshape(
+        state.player_position.shape[0] - 1, -1
+    )
 
     directions = jnp.delete(state.player_direction, player)
     directions_one_hot = jax.nn.one_hot(directions, num_classes=4)
@@ -868,7 +870,10 @@ def render_others_data(state, player=0):
         jnp.zeros_like(directions_one_hot),
     )
 
-    return jnp.concat([player_map_flattened, filtered_inventories_flattened, directions_one_hot], axis=1)
+    return jnp.concat(
+        [player_map_flattened, filtered_inventories_flattened, directions_one_hot],
+        axis=1,
+    )
 
 
 # def render_pixels_empty(block_pixel_size):

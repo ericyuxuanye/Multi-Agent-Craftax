@@ -752,7 +752,7 @@ class ClassicMetaController:
         return model_params, opt_states, log
 
     def run_one_episode(self, model_params):
-        agent_params, _aux_params = model_params
+        agent_params = model_params
         rng, _rng = jax.random.split(self.rng)
         next_obs, env_state = self.env.reset(_rng, self.env_params)
         next_done = jnp.zeros((self.static_params.num_players, 1), dtype=bool)
