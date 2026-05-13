@@ -311,9 +311,10 @@ def render_craftax_pixels(state, block_pixel_size, num_players, player=0):
 
         return pixels, None
 
-    map_pixels, _ = jax.lax.scan(
-        _add_zombie_to_pixels, map_pixels, jnp.arange(state.zombies.mask.shape[0])
-    )
+    if state.zombies.mask.shape[0] > 0:
+        map_pixels, _ = jax.lax.scan(
+            _add_zombie_to_pixels, map_pixels, jnp.arange(state.zombies.mask.shape[0])
+        )
 
     def _add_cow_to_pixels(pixels, cow_index):
         local_position = (
@@ -359,9 +360,10 @@ def render_craftax_pixels(state, block_pixel_size, num_players, player=0):
 
         return pixels, None
 
-    map_pixels, _ = jax.lax.scan(
-        _add_cow_to_pixels, map_pixels, jnp.arange(state.cows.mask.shape[0])
-    )
+    if state.cows.mask.shape[0] > 0:
+        map_pixels, _ = jax.lax.scan(
+            _add_cow_to_pixels, map_pixels, jnp.arange(state.cows.mask.shape[0])
+        )
 
     def _add_skeleton_to_pixels(pixels, skeleton_index):
         local_position = (
@@ -410,9 +412,10 @@ def render_craftax_pixels(state, block_pixel_size, num_players, player=0):
 
         return pixels, None
 
-    map_pixels, _ = jax.lax.scan(
-        _add_skeleton_to_pixels, map_pixels, jnp.arange(state.skeletons.mask.shape[0])
-    )
+    if state.skeletons.mask.shape[0] > 0:
+        map_pixels, _ = jax.lax.scan(
+            _add_skeleton_to_pixels, map_pixels, jnp.arange(state.skeletons.mask.shape[0])
+        )
 
     def _add_arrow_to_pixels(pixels, arrow_index):
         local_position = (
@@ -492,9 +495,10 @@ def render_craftax_pixels(state, block_pixel_size, num_players, player=0):
 
         return pixels, None
 
-    map_pixels, _ = jax.lax.scan(
-        _add_arrow_to_pixels, map_pixels, jnp.arange(state.arrows.mask.shape[0])
-    )
+    if state.arrows.mask.shape[0] > 0:
+        map_pixels, _ = jax.lax.scan(
+            _add_arrow_to_pixels, map_pixels, jnp.arange(state.arrows.mask.shape[0])
+        )
 
     # Apply night
     daylight = state.light_level

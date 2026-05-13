@@ -123,6 +123,14 @@ def main(args):
     if args.players:
         env.static_env_params = env.static_env_params.replace(num_players=args.players)
 
+    if args.small_env:
+        env.static_env_params = env.static_env_params.replace(
+            map_size=(16, 16),
+            max_zombies=0,
+            max_skeletons=0,
+            max_arrows=0,
+        )
+
     num_players = env.static_env_params.num_players
     print("Controls")
     for k, v in KEY_MAPPING.items():
@@ -179,6 +187,7 @@ def entry_point():
     parser.add_argument("--fps", type=int, default=60)
     parser.add_argument("--god", action="store_true")
     parser.add_argument("--players", type=int)
+    parser.add_argument("--small_env", action="store_true")
 
     args, rest_args = parser.parse_known_args(sys.argv[1:])
     if rest_args:
