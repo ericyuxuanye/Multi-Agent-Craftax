@@ -53,24 +53,28 @@ def render_craftax_symbolic(state, player=0, observe_others=False):
 
         return (mob_map, mobs, mob_type_index), None
 
-    (mob_map, _, _), _ = jax.lax.scan(
-        _add_mob_to_map,
-        (mob_map, state.zombies, 0),
-        jnp.arange(state.zombies.mask.shape[0]),
-    )
-    (mob_map, _, _), _ = jax.lax.scan(
-        _add_mob_to_map, (mob_map, state.cows, 1), jnp.arange(state.cows.mask.shape[0])
-    )
-    (mob_map, _, _), _ = jax.lax.scan(
-        _add_mob_to_map,
-        (mob_map, state.skeletons, 2),
-        jnp.arange(state.skeletons.mask.shape[0]),
-    )
-    (mob_map, _, _), _ = jax.lax.scan(
-        _add_mob_to_map,
-        (mob_map, state.arrows, 3),
-        jnp.arange(state.arrows.mask.shape[0]),
-    )
+    if state.zombies.mask.shape[0] > 0:
+        (mob_map, _, _), _ = jax.lax.scan(
+            _add_mob_to_map,
+            (mob_map, state.zombies, 0),
+            jnp.arange(state.zombies.mask.shape[0]),
+        )
+    if state.cows.mask.shape[0] > 0:
+        (mob_map, _, _), _ = jax.lax.scan(
+            _add_mob_to_map, (mob_map, state.cows, 1), jnp.arange(state.cows.mask.shape[0])
+        )
+    if state.skeletons.mask.shape[0] > 0:
+        (mob_map, _, _), _ = jax.lax.scan(
+            _add_mob_to_map,
+            (mob_map, state.skeletons, 2),
+            jnp.arange(state.skeletons.mask.shape[0]),
+        )
+    if state.arrows.mask.shape[0] > 0:
+        (mob_map, _, _), _ = jax.lax.scan(
+            _add_mob_to_map,
+            (mob_map, state.arrows, 3),
+            jnp.arange(state.arrows.mask.shape[0]),
+        )
 
     if not observe_others:
         # Add other player positions to mob map
