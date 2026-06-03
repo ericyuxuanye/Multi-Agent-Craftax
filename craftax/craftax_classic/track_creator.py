@@ -1,7 +1,7 @@
 from functools import partial
 
 import jax
-import jax.nn as jnp
+import jax.numpy as jnp
 from flax import struct
 
 from craftax.craftax_classic.game_logic import *
@@ -345,7 +345,7 @@ def place_block_tracked(state, action, static_params, tracked_state: TrackedStat
         is_placing_furnace, jnp.arange(static_params.num_players), 0
     )
     tracked_state = tracked_state.replace(  # pyright: ignore
-        table_map=tracked_state.table_map.at[
+        furnace_map=tracked_state.furnace_map.at[
             placing_block_position[:, 0], placing_block_position[:, 1]
         ].add(new_players_furnace)
     )
