@@ -2188,6 +2188,79 @@ def restrict_movement(rng, state, action):
     return action
 
 
+def do_drop(state, actions):
+    """Remove one tool from the acting player's inventory and place it on their tile."""
+    drop_base = Action.DROP_WOOD_PICKAXE.value  # 17
+    tool_fields = [
+        state.inventory.wood_pickaxe,
+        state.inventory.stone_pickaxe,
+        state.inventory.iron_pickaxe,
+        state.inventory.wood_sword,
+        state.inventory.stone_sword,
+        state.inventory.iron_sword,
+    ]
+    dropped_items = state.dropped_items
+    new_fields = list(tool_fields)
+    for ch in range(6):
+        is_dropping = (actions == drop_base + ch) & (tool_fields[ch] > 0)
+        dropped_items = dropped_items.at[
+            state.player_position[:, 0], state.player_position[:, 1], ch
+        ].add(is_dropping.astype(jnp.int32))
+        new_fields[ch] = tool_fields[ch] - is_dropping.astype(jnp.int32)
+    return state.replace(
+        dropped_items=dropped_items,
+        inventory=state.inventory.replace(
+            wood_pickaxe=new_fields[0],
+            stone_pickaxe=new_fields[1],
+            iron_pickaxe=new_fields[2],
+            wood_sword=new_fields[3],
+            stone_sword=new_fields[4],
+            iron_sword=new_fields[5],
+        ),
+    )
+
+
+def pickup_dropped_items(state, old_positions, rng):
+    """Players who moved onto a tile pick up any dropped items there.
+
+    Uses a sequential scan in random order so that on contested tiles a random
+    player claims the items rather than always the lowest index.
+    """
+    new_positions = state.player_position
+    actually_moved = jnp.any(old_positions != new_positions, axis=1)  # (n_players,)
+
+    def _pickup_player(carry, player_i):
+        dropped_items, picked_up = carry
+        items_here = dropped_items[new_positions[player_i, 0], new_positions[player_i, 1], :]
+        items_to_pickup = items_here * actually_moved[player_i]
+        picked_up = picked_up.at[player_i].set(items_to_pickup)
+        dropped_items = jax.lax.cond(
+            actually_moved[player_i],
+            lambda x: x.at[new_positions[player_i, 0], new_positions[player_i, 1], :].set(0),
+            lambda x: x,
+            dropped_items,
+        )
+        return (dropped_items, picked_up), None
+
+    n_players = new_positions.shape[0]
+    init_picked_up = jnp.zeros((n_players, 6), dtype=jnp.int32)
+    perm = jax.random.permutation(rng, n_players)
+    (new_dropped_items, items_picked_up), _ = jax.lax.scan(
+        _pickup_player,
+        (state.dropped_items, init_picked_up),
+        perm,
+    )
+    new_inventory = state.inventory.replace(
+        wood_pickaxe=state.inventory.wood_pickaxe + items_picked_up[:, 0],
+        stone_pickaxe=state.inventory.stone_pickaxe + items_picked_up[:, 1],
+        iron_pickaxe=state.inventory.iron_pickaxe + items_picked_up[:, 2],
+        wood_sword=state.inventory.wood_sword + items_picked_up[:, 3],
+        stone_sword=state.inventory.stone_sword + items_picked_up[:, 4],
+        iron_sword=state.inventory.iron_sword + items_picked_up[:, 5],
+    )
+    return state.replace(dropped_items=new_dropped_items, inventory=new_inventory)
+
+
 def craftax_step(rng, state, actions, params, static_params):
     init_achievements = state.achievements
     init_health = state.player_health
@@ -2206,6 +2279,9 @@ def craftax_step(rng, state, actions, params, static_params):
     rng, _rng = jax.random.split(rng)
     actions = break_ties(_rng, state, actions)
 
+    # Drop items (before movement so items land at current tile)
+    state = do_drop(state, actions)
+
     # Crafting
     state = do_crafting(state, actions)
 
@@ -2217,7 +2293,12 @@ def craftax_step(rng, state, actions, params, static_params):
     state = place_block(state, actions, static_params)
 
     # Movement
+    old_positions = state.player_position
     state = move_player(state, actions)
+
+    # Pickup dropped items at new positions (only for players who moved)
+    rng, _rng = jax.random.split(rng)
+    state = pickup_dropped_items(state, old_positions, _rng)
 
     # Mobs
     rng, _rng = jax.random.split(rng)

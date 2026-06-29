@@ -35,7 +35,8 @@ def get_map_obs_shape(observe_others: bool = False, num_players: None | int = No
     num_mobs = 4 if observe_others else 5  # pyright: ignore
     num_blocks = len(BlockType)
 
-    return OBS_DIM[0], OBS_DIM[1], num_blocks + num_mobs
+    num_dropped_item_types = 6  # one channel per droppable tool type
+    return OBS_DIM[0], OBS_DIM[1], num_blocks + num_mobs + num_dropped_item_types
 
 
 def get_flat_map_obs_shape(observe_others: bool = False, num_players: None | int = None):
@@ -137,10 +138,10 @@ class CraftaxClassicSymbolicEnvNoAutoReset(EnvironmentNoAutoReset):
 
     @property
     def num_actions(self) -> int:
-        return 17
+        return 23
 
     def action_space(self, params: Optional[EnvParams] = None) -> spaces.Discrete:
-        return spaces.Discrete(17)
+        return spaces.Discrete(23)
 
     def observation_space(self, params: EnvParams) -> spaces.Box:
         flat_map_obs_shape = get_flat_map_obs_shape()
@@ -244,10 +245,10 @@ class CraftaxClassicSymbolicEnv(environment.Environment):
 
     @property
     def num_actions(self) -> int:
-        return 17
+        return 23
 
     def action_space(self, params: Optional[EnvParams] = None) -> spaces.Discrete:
-        return spaces.Discrete(17)
+        return spaces.Discrete(23)
 
     def observation_space(self, params: EnvParams) -> spaces.Box:
         flat_map_obs_shape = get_flat_map_obs_shape()

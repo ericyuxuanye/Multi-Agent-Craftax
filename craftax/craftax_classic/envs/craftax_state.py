@@ -53,6 +53,9 @@ class EnvState:
     """2D int array of tiles"""
     mob_map: jnp.ndarray
     """2D boolean array"""
+    dropped_items: jnp.ndarray
+    """(map_H, map_W, 6) int array of dropped tool counts per tile.
+    Channels: 0=wood_pickaxe, 1=stone_pickaxe, 2=iron_pickaxe, 3=wood_sword, 4=stone_sword, 5=iron_sword"""
 
     # After refactoring, needs to be (n, 2)
     player_position: jnp.ndarray

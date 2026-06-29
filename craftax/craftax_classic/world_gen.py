@@ -230,6 +230,7 @@ def generate_world(rng, params: EnvParams, static_params: StaticEnvParams):
     state = EnvState(
         map=map,
         mob_map=jnp.zeros(static_params.map_size, dtype=bool),
+        dropped_items=jnp.zeros((*static_params.map_size, 6), dtype=jnp.int32),
         player_position=player_position,
         player_direction=jnp.full(static_params.num_players, Action.UP.value, dtype=jnp.int32),
         player_health=jnp.full(static_params.num_players, 9, dtype=jnp.int32),

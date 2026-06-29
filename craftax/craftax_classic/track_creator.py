@@ -465,6 +465,9 @@ def craftax_step_tracked(
     rng, _rng = jax.random.split(rng)
     actions = break_ties(_rng, state, actions)
 
+    # Drop (before movement so items land at current tile)
+    state = do_drop(state, actions)
+
     # Crafting
     state, tracked_state = do_crafting_tracked(state, actions, tracked_state)
 
@@ -478,7 +481,12 @@ def craftax_step_tracked(
     )
 
     # Movement
+    old_positions = state.player_position
     state = move_player(state, actions)
+
+    # Pickup dropped items (only for players who moved)
+    rng, _rng = jax.random.split(rng)
+    state = pickup_dropped_items(state, old_positions, _rng)
 
     # Mobs
     rng, _rng = jax.random.split(rng)

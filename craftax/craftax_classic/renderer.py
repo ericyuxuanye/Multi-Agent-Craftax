@@ -91,7 +91,18 @@ def render_craftax_symbolic(state, player=0, observe_others=False):
             jnp.arange(state.player_position.shape[0]),
         )
 
-    all_map = jnp.concatenate([map_view_one_hot, mob_map], axis=-1)
+    # Dropped items: pad and slice the same way as the main map
+    padded_dropped = jnp.pad(
+        state.dropped_items,
+        ((MAX_OBS_DIM + 2, MAX_OBS_DIM + 2), (MAX_OBS_DIM + 2, MAX_OBS_DIM + 2), (0, 0)),
+        constant_values=0,
+    )
+    dropped_view = jax.lax.dynamic_slice(
+        padded_dropped, (tl_corner[0], tl_corner[1], 0), (*OBS_DIM, 6)
+    )
+    dropped_view_norm = dropped_view.astype(jnp.float32) / 9.0
+
+    all_map = jnp.concatenate([map_view_one_hot, mob_map, dropped_view_norm], axis=-1)
 
     direction = jax.nn.one_hot(state.player_direction[player] - 1, num_classes=4)
 
@@ -188,6 +199,44 @@ def render_craftax_pixels(state, block_pixel_size, num_players, player=0):
 
     map_pixels, _ = jax.lax.scan(
         _add_block_type_to_pixels, map_pixels, jnp.arange(len(BlockType))
+    )
+
+    # Render dropped items as small tool sprites overlaid on tiles
+    padded_dropped = jnp.pad(
+        state.dropped_items,
+        ((MAX_OBS_DIM + 2, MAX_OBS_DIM + 2), (MAX_OBS_DIM + 2, MAX_OBS_DIM + 2), (0, 0)),
+        constant_values=0,
+    )
+    dropped_view_px = jax.lax.dynamic_slice(
+        padded_dropped, (tl_corner[0], tl_corner[1], 0), (*OBS_DIM, 6)
+    )
+    dropped_item_pixel_size = textures["dropped_item_textures_rgb"].shape[1]
+    tile_offset = (block_pixel_size - dropped_item_pixel_size) // 2
+
+    def _render_dropped_channel(map_pixels, ch):
+        item_rgb = textures["dropped_item_textures_rgb"][ch]
+        item_alpha = textures["dropped_item_textures_alpha"][ch]
+
+        def _render_tile(map_pixels, tile_idx):
+            i = tile_idx // OBS_DIM[1]
+            j = tile_idx % OBS_DIM[1]
+            has_item = (dropped_view_px[i, j, ch] > 0).astype(jnp.float32)
+            pi = i * block_pixel_size + tile_offset
+            pj = j * block_pixel_size + tile_offset
+            bg = jax.lax.dynamic_slice(
+                map_pixels, (pi, pj, 0), (dropped_item_pixel_size, dropped_item_pixel_size, 3)
+            )
+            blended = (1.0 - item_alpha * has_item) * bg + item_rgb * item_alpha * has_item
+            map_pixels = jax.lax.dynamic_update_slice(map_pixels, blended, (pi, pj, 0))
+            return map_pixels, None
+
+        map_pixels, _ = jax.lax.scan(
+            _render_tile, map_pixels, jnp.arange(OBS_DIM[0] * OBS_DIM[1])
+        )
+        return map_pixels, None
+
+    map_pixels, _ = jax.lax.scan(
+        _render_dropped_channel, map_pixels, jnp.arange(6)
     )
 
     # Render players

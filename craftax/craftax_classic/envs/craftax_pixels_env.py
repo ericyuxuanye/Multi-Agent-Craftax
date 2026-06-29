@@ -70,10 +70,10 @@ class CraftaxClassicPixelsEnvNoAutoReset(EnvironmentNoAutoReset):
 
     @property
     def num_actions(self) -> int:
-        return 17
+        return 23
 
     def action_space(self, params: Optional[EnvParams] = None) -> spaces.Discrete:
-        return spaces.Discrete(17)
+        return spaces.Discrete(23)
 
     def observation_space(self, params: EnvParams) -> spaces.Box:
         return spaces.Box(
@@ -142,10 +142,10 @@ class CraftaxClassicPixelsEnv(environment.Environment):
 
     @property
     def num_actions(self) -> int:
-        return 17
+        return 23
 
     def action_space(self, params: Optional[EnvParams] = None) -> spaces.Discrete:
-        return spaces.Discrete(17)
+        return spaces.Discrete(23)
 
     def observation_space(self, params: EnvParams) -> spaces.Box:
         return spaces.Box(

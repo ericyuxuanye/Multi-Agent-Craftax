@@ -60,13 +60,19 @@ class Action(Enum):
     MAKE_WOOD_SWORD = 14  # 4
     MAKE_STONE_SWORD = 15  # 5
     MAKE_IRON_SWORD = 16  # 6
+    DROP_WOOD_PICKAXE = 17  # 7
+    DROP_STONE_PICKAXE = 18  # 8
+    DROP_IRON_PICKAXE = 19  # 9
+    DROP_WOOD_SWORD = 20  # 0
+    DROP_STONE_SWORD = 21  # -
+    DROP_IRON_SWORD = 22  # =
 
 
 # GAME MECHANICS
 DIRECTIONS = jnp.concatenate(
     (
         jnp.array([[0, 0], [0, -1], [0, 1], [-1, 0], [1, 0]], dtype=jnp.int32),
-        jnp.zeros((11, 2), dtype=jnp.int32),
+        jnp.zeros((17, 2), dtype=jnp.int32),
     ),
     axis=0,
 )
@@ -411,6 +417,32 @@ def load_all_textures(block_pixel_size):
         night_noise_intensity_texture, axis=-1
     ).repeat(3, axis=-1)
 
+    # Small tool textures for in-world dropped item overlay (half of tile size)
+    dropped_item_pixel_size = max(1, int(block_pixel_size * 0.5))
+    _dropped_tool_files = [
+        "wood_pickaxe.png",
+        "stone_pickaxe.png",
+        "iron_pickaxe.png",
+        "wood_sword.png",
+        "stone_sword.png",
+        "iron_sword.png",
+    ]
+    _dropped_rgba = [
+        jnp.array(load_texture(f, dropped_item_pixel_size, clamp_alpha=False))
+        for f in _dropped_tool_files
+    ]
+    dropped_item_textures_rgb = jnp.array([t[:, :, :3] for t in _dropped_rgba])
+    dropped_item_textures_alpha = jnp.array(
+        [
+            jnp.repeat(
+                jnp.expand_dims(t[:, :, 3], axis=-1).astype(float) / 255,
+                repeats=3,
+                axis=2,
+            )
+            for t in _dropped_rgba
+        ]
+    )
+
     return {
         "block_textures": block_textures,
         "smaller_block_textures": smaller_block_textures,
@@ -444,6 +476,8 @@ def load_all_textures(block_pixel_size):
         "arrow_texture_alpha": arrow_texture_alpha,
         "night_texture": night_texture,
         "night_noise_intensity_texture": night_noise_intensity_texture,
+        "dropped_item_textures_rgb": dropped_item_textures_rgb,
+        "dropped_item_textures_alpha": dropped_item_textures_alpha,
     }
 
 

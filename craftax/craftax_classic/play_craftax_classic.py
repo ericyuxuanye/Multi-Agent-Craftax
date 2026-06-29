@@ -39,6 +39,12 @@ KEY_MAPPING = {
     pygame.K_4: Action.MAKE_WOOD_SWORD,
     pygame.K_5: Action.MAKE_STONE_SWORD,
     pygame.K_6: Action.MAKE_IRON_SWORD,
+    pygame.K_7: Action.DROP_WOOD_PICKAXE,
+    pygame.K_8: Action.DROP_STONE_PICKAXE,
+    pygame.K_9: Action.DROP_IRON_PICKAXE,
+    pygame.K_0: Action.DROP_WOOD_SWORD,
+    pygame.K_MINUS: Action.DROP_STONE_SWORD,
+    pygame.K_EQUALS: Action.DROP_IRON_SWORD,
 }
 
 
