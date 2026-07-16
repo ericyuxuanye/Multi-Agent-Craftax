@@ -27,6 +27,9 @@ class TrackedState:
     furnace_map: jnp.ndarray
     """Keep track of last player that created the furnace"""
 
+    items_crafted_count: jnp.ndarray
+    """Total number of items (pickaxes/swords) crafted by each player"""
+
 
 def initialize_tracked_state(static_params) -> TrackedState:
     """
@@ -40,6 +43,7 @@ def initialize_tracked_state(static_params) -> TrackedState:
         furnace_total_count=jnp.zeros(static_params.num_players, dtype=jnp.int16),
         table_map=jnp.full(static_params.map_size, -1, dtype=jnp.int16),
         furnace_map=jnp.full(static_params.map_size, -1, dtype=jnp.int16),
+        items_crafted_count=jnp.zeros(static_params.num_players, dtype=jnp.int16),
     )
 
 
@@ -258,6 +262,17 @@ def do_crafting_tracked(state, action, tracked_state: TrackedState):
     state = state.replace(
         inventory=new_inventory,
         achievements=new_achievements,
+    )
+
+    # Update tracked state: total items crafted by each player this step
+    tracked_state = tracked_state.replace(  # pyright: ignore
+        items_crafted_count=tracked_state.items_crafted_count
+        + is_crafting_wood_pickaxe
+        + is_crafting_stone_pickaxe
+        + is_crafting_iron_pickaxe
+        + is_crafting_wood_sword
+        + is_crafting_stone_sword
+        + is_crafting_iron_sword,
     )
 
     return state, tracked_state
