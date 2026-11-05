@@ -181,8 +181,12 @@ def do_action(rng, state, action, static_params):
         old_mask = new_zombies.mask[target_zombie_index]
         # zombies with 0 health die
         new_zombies = new_zombies.replace(mask=new_zombies.health > 0)
+        # Non-attacking players argmax to target 0, so gate credit on attacking.
         did_kill_zombie = jnp.logical_and(
-            old_mask, jnp.logical_not(new_zombies.mask[target_zombie_index])
+            is_attacking_zombie,
+            jnp.logical_and(
+                old_mask, jnp.logical_not(new_zombies.mask[target_zombie_index])
+            ),
         )
         new_achievements = state.achievements.at[:, Achievement.DEFEAT_ZOMBIE.value].set(
             jnp.logical_or(
@@ -220,7 +224,10 @@ def do_action(rng, state, action, static_params):
         old_mask = new_cows.mask[target_cow_index]
         new_cows = new_cows.replace(mask=new_cows.health > 0)
         did_kill_cow = jnp.logical_and(
-            old_mask, jnp.logical_not(new_cows.mask[target_cow_index])
+            is_attacking_cow,
+            jnp.logical_and(
+                old_mask, jnp.logical_not(new_cows.mask[target_cow_index])
+            ),
         )
         new_achievements = state.achievements.at[:, Achievement.EAT_COW.value].set(
             jnp.logical_or(state.achievements[:, Achievement.EAT_COW.value], did_kill_cow)
@@ -265,7 +272,10 @@ def do_action(rng, state, action, static_params):
         old_mask = new_skeletons.mask[target_skeleton_index]
         new_skeletons = new_skeletons.replace(mask=new_skeletons.health > 0)
         did_kill_skeleton = jnp.logical_and(
-            old_mask, jnp.logical_not(new_skeletons.mask[target_skeleton_index])
+            is_attacking_skeleton,
+            jnp.logical_and(
+                old_mask, jnp.logical_not(new_skeletons.mask[target_skeleton_index])
+            ),
         )
         new_achievements = state.achievements.at[:, Achievement.DEFEAT_SKELETON.value].set(
             jnp.logical_or(
