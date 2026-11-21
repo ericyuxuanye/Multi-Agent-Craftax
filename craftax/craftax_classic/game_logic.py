@@ -762,7 +762,7 @@ def do_crafting(state, action):
         achievements=new_achievements,
     )
 
-    return state
+    return cap_inventory(state)
 
 
 def add_new_growing_plant(state, position, is_placing_sapling, static_params):
@@ -2031,7 +2031,7 @@ def spawn_mobs(state, rng, params, static_params):
 
 def cap_inventory(state):
     """
-    Limit inventory to 9 items
+    Limit each inventory stack to 9 items.
     """
     capped_inv = jax.tree_util.tree_map(lambda x: jnp.minimum(x, 9), state.inventory)
 
@@ -2045,6 +2045,10 @@ def break_ties(rng, state, action):
     If two agents want to operate on the same block, we only let one agent do that
     """
     action_pos = state.player_position + DIRECTIONS[state.player_direction]
+    player_indices = jnp.arange(len(action))
+    is_transfer = (action >= Action.TRANSFER_WOOD_PICKAXE.value) & (
+        action <= Action.TRANSFER_IRON_SWORD.value
+    )
 
     # DO
     def _process(eval_func):
@@ -2064,9 +2068,11 @@ def break_ties(rng, state, action):
             """
             rng, action, visited = rng_action_visited
 
-            is_same = (jnp.arange(len(action_pos)) >= i) & jnp.all(
+            is_same = (player_indices >= i) & jnp.all(
                 action_pos == action_pos[i], axis=1
             )
+            # Transfers resolve separately from actions on the facing block.
+            is_same &= ~is_transfer | (player_indices == i)
 
             new_action = jax.lax.select(
                 is_same, jnp.full_like(action, Action.NOOP.value), action
@@ -2198,77 +2204,54 @@ def restrict_movement(rng, state, action):
     return action
 
 
-def do_drop(state, actions):
-    """Remove one tool from the acting player's inventory and place it on their tile."""
-    drop_base = Action.DROP_WOOD_PICKAXE.value  # 17
-    tool_fields = [
-        state.inventory.wood_pickaxe,
-        state.inventory.stone_pickaxe,
-        state.inventory.iron_pickaxe,
-        state.inventory.wood_sword,
-        state.inventory.stone_sword,
-        state.inventory.iron_sword,
-    ]
-    dropped_items = state.dropped_items
-    new_fields = list(tool_fields)
-    for ch in range(6):
-        is_dropping = (actions == drop_base + ch) & (tool_fields[ch] > 0)
-        dropped_items = dropped_items.at[
-            state.player_position[:, 0], state.player_position[:, 1], ch
-        ].add(is_dropping.astype(jnp.int32))
-        new_fields[ch] = tool_fields[ch] - is_dropping.astype(jnp.int32)
-    return state.replace(
-        dropped_items=dropped_items,
-        inventory=state.inventory.replace(
-            wood_pickaxe=new_fields[0],
-            stone_pickaxe=new_fields[1],
-            iron_pickaxe=new_fields[2],
-            wood_sword=new_fields[3],
-            stone_sword=new_fields[4],
-            iron_sword=new_fields[5],
-        ),
+def transfer_tools(rng, state, actions):
+    """Send one tool to a randomly selected living player on an adjacent tile."""
+    positions = state.player_position
+    offsets = positions[:, None, :] - positions[None, :, :]
+    distances = jnp.max(jnp.abs(offsets), axis=-1)
+    alive = are_players_alive(state)
+    neighbors = (distances == 1) & alive[:, None] & alive[None, :]
+    # Each eligible recipient has the same chance of drawing the highest score.
+    recipient_scores = jax.random.uniform(rng, neighbors.shape)
+    recipients = jnp.argmax(jnp.where(neighbors, recipient_scores, -1.0), axis=1)
+
+    tool_actions = jnp.array(
+        [
+            Action.TRANSFER_WOOD_PICKAXE.value,
+            Action.TRANSFER_STONE_PICKAXE.value,
+            Action.TRANSFER_IRON_PICKAXE.value,
+            Action.TRANSFER_WOOD_SWORD.value,
+            Action.TRANSFER_STONE_SWORD.value,
+            Action.TRANSFER_IRON_SWORD.value,
+        ]
     )
-
-
-def pickup_dropped_items(state, old_positions, rng):
-    """Players who moved onto a tile pick up any dropped items there.
-
-    Uses a sequential scan in random order so that on contested tiles a random
-    player claims the items rather than always the lowest index.
-    """
-    new_positions = state.player_position
-    actually_moved = jnp.any(old_positions != new_positions, axis=1)  # (n_players,)
-
-    def _pickup_player(carry, player_i):
-        dropped_items, picked_up = carry
-        items_here = dropped_items[new_positions[player_i, 0], new_positions[player_i, 1], :]
-        items_to_pickup = items_here * actually_moved[player_i]
-        picked_up = picked_up.at[player_i].set(items_to_pickup)
-        dropped_items = jax.lax.cond(
-            actually_moved[player_i],
-            lambda x: x.at[new_positions[player_i, 0], new_positions[player_i, 1], :].set(0),
-            lambda x: x,
-            dropped_items,
-        )
-        return (dropped_items, picked_up), None
-
-    n_players = new_positions.shape[0]
-    init_picked_up = jnp.zeros((n_players, 6), dtype=jnp.int32)
-    perm = jax.random.permutation(rng, n_players)
-    (new_dropped_items, items_picked_up), _ = jax.lax.scan(
-        _pickup_player,
-        (state.dropped_items, init_picked_up),
-        perm,
+    tool_counts = jnp.stack(
+        [
+            state.inventory.wood_pickaxe,
+            state.inventory.stone_pickaxe,
+            state.inventory.iron_pickaxe,
+            state.inventory.wood_sword,
+            state.inventory.stone_sword,
+            state.inventory.iron_sword,
+        ],
+        axis=1,
     )
-    new_inventory = state.inventory.replace(
-        wood_pickaxe=state.inventory.wood_pickaxe + items_picked_up[:, 0],
-        stone_pickaxe=state.inventory.stone_pickaxe + items_picked_up[:, 1],
-        iron_pickaxe=state.inventory.iron_pickaxe + items_picked_up[:, 2],
-        wood_sword=state.inventory.wood_sword + items_picked_up[:, 3],
-        stone_sword=state.inventory.stone_sword + items_picked_up[:, 4],
-        iron_sword=state.inventory.iron_sword + items_picked_up[:, 5],
+    # Determine all sends from the inventory at the start of the transfer phase.
+    outgoing = (
+        (actions[:, None] == tool_actions)
+        & (tool_counts > 0)
+        & jnp.any(neighbors, axis=1, keepdims=True)
+    ).astype(tool_counts.dtype)
+    tool_counts = (tool_counts - outgoing).at[recipients].add(outgoing)
+    inventory = state.inventory.replace(
+        wood_pickaxe=tool_counts[:, 0],
+        stone_pickaxe=tool_counts[:, 1],
+        iron_pickaxe=tool_counts[:, 2],
+        wood_sword=tool_counts[:, 3],
+        stone_sword=tool_counts[:, 4],
+        iron_sword=tool_counts[:, 5],
     )
-    return state.replace(dropped_items=new_dropped_items, inventory=new_inventory)
+    return cap_inventory(state.replace(inventory=inventory))
 
 
 def craftax_step(rng, state, actions, params, static_params):
@@ -2289,26 +2272,22 @@ def craftax_step(rng, state, actions, params, static_params):
     rng, _rng = jax.random.split(rng)
     actions = break_ties(_rng, state, actions)
 
-    # Drop items (before movement so items land at current tile)
-    state = do_drop(state, actions)
+    # Transfers use player positions before movement.
+    rng, action_rng = jax.random.split(rng)
+    rng, transfer_rng = jax.random.split(rng)
+    state = transfer_tools(transfer_rng, state, actions)
 
     # Crafting
     state = do_crafting(state, actions)
 
     # Interact (mining, attacking, eating plants, drinking water)
-    rng, _rng = jax.random.split(rng)
-    state = do_action(_rng, state, actions, static_params)
+    state = do_action(action_rng, state, actions, static_params)
 
     # Placing
     state = place_block(state, actions, static_params)
 
     # Movement
-    old_positions = state.player_position
     state = move_player(state, actions)
-
-    # Pickup dropped items at new positions (only for players who moved)
-    rng, _rng = jax.random.split(rng)
-    state = pickup_dropped_items(state, old_positions, _rng)
 
     # Mobs
     rng, _rng = jax.random.split(rng)

@@ -1,3 +1,6 @@
+from functools import partial
+
+import jax
 from jax import lax
 from gymnax.environments import spaces, environment
 from typing import Tuple, Optional
@@ -58,11 +61,16 @@ class CraftaxClassicPixelsEnvNoAutoReset(EnvironmentNoAutoReset):
         return self.get_obs(state), state
 
     def get_obs(self, state: EnvState) -> chex.Array:
-        pixels = render_craftax_pixels(state, BLOCK_PIXEL_SIZE_AGENT) / 255.0
-        return pixels
+        pixels = render_craftax_pixels(
+            state, BLOCK_PIXEL_SIZE_AGENT, self.static_env_params.num_players
+        )
+        return pixels / 255.0
 
     def is_terminal(self, state: EnvState, params: EnvParams) -> bool:
         return is_game_over(state, params)
+
+    def discount(self, state: EnvState, params: EnvParams) -> chex.Array:
+        return jnp.where(self.is_terminal(state, params), 0.0, 1.0)
 
     @property
     def name(self) -> str:
@@ -104,6 +112,23 @@ class CraftaxClassicPixelsEnv(environment.Environment):
     def default_static_params() -> StaticEnvParams:
         return StaticEnvParams()
 
+    @partial(jax.jit, static_argnums=(0,))
+    def step(self, key, state, action, params=None):
+        if params is None:
+            params = self.default_params
+
+        key_step, key_reset = jax.random.split(key)
+        obs, state, reward, done, info = self.step_env(key_step, state, action, params)
+        reset_obs, reset_state = self.reset_env(key_reset, params)
+
+        all_done = jnp.all(done)
+        state = jax.tree_util.tree_map(
+            lambda reset, current: lax.select(all_done, reset, current),
+            reset_state,
+            state,
+        )
+        return lax.select(all_done, reset_obs, obs), state, reward, done, info
+
     def step_env(
         self, key: chex.PRNGKey, state: EnvState, action: int, params: EnvParams
     ) -> Tuple[chex.Array, EnvState, float, bool, dict]:
@@ -130,11 +155,16 @@ class CraftaxClassicPixelsEnv(environment.Environment):
         return self.get_obs(state), state
 
     def get_obs(self, state: EnvState) -> chex.Array:
-        pixels = render_craftax_pixels(state, BLOCK_PIXEL_SIZE_AGENT) / 255.0
-        return pixels
+        pixels = render_craftax_pixels(
+            state, BLOCK_PIXEL_SIZE_AGENT, self.static_env_params.num_players
+        )
+        return pixels / 255.0
 
     def is_terminal(self, state: EnvState, params: EnvParams) -> bool:
         return is_game_over(state, params)
+
+    def discount(self, state: EnvState, params: EnvParams) -> chex.Array:
+        return jnp.where(self.is_terminal(state, params), 0.0, 1.0)
 
     @property
     def name(self) -> str:
