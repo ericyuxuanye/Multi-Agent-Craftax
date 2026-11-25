@@ -2205,15 +2205,16 @@ def restrict_movement(rng, state, action):
 
 
 def transfer_tools(rng, state, actions):
-    """Send one tool to a randomly selected living player on an adjacent tile."""
+    """Send one tool to a randomly selected other living player within one tile."""
     positions = state.player_position
     offsets = positions[:, None, :] - positions[None, :, :]
     distances = jnp.max(jnp.abs(offsets), axis=-1)
     alive = are_players_alive(state)
-    neighbors = (distances == 1) & alive[:, None] & alive[None, :]
+    other_players = ~jnp.eye(positions.shape[0], dtype=bool)
+    eligible = (distances <= 1) & other_players & alive[:, None] & alive[None, :]
     # Each eligible recipient has the same chance of drawing the highest score.
-    recipient_scores = jax.random.uniform(rng, neighbors.shape)
-    recipients = jnp.argmax(jnp.where(neighbors, recipient_scores, -1.0), axis=1)
+    recipient_scores = jax.random.uniform(rng, eligible.shape)
+    recipients = jnp.argmax(jnp.where(eligible, recipient_scores, -1.0), axis=1)
 
     tool_actions = jnp.array(
         [
@@ -2240,7 +2241,7 @@ def transfer_tools(rng, state, actions):
     outgoing = (
         (actions[:, None] == tool_actions)
         & (tool_counts > 0)
-        & jnp.any(neighbors, axis=1, keepdims=True)
+        & jnp.any(eligible, axis=1, keepdims=True)
     ).astype(tool_counts.dtype)
     tool_counts = (tool_counts - outgoing).at[recipients].add(outgoing)
     inventory = state.inventory.replace(
